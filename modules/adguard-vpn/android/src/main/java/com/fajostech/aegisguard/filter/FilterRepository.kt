@@ -175,6 +175,12 @@ class FilterRepository(private val context: Context) {
                 ||pixel.facebook.com^
                 ||an.facebook.com^
                 ||ads.yahoo.com^
+                ||m.yap.yahoo.com^
+                ||b.gemini.yahoo.com^
+                ||gemini.yahoo.com^
+                ||adserver.yahoo.com^
+                ||yads.c.oath.com^
+                ||analytics.query.yahoo.com^
                 ||taboola.com^
                 ||outbrain.com^
                 ||adcolony.com^
