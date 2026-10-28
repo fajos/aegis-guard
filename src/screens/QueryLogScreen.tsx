@@ -10,7 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AdGuardVpn, QueryLogRecord } from '../native/AdGuardVpnModule';
+import { AdGuardVpn, vpnEventEmitter, QueryLogRecord } from '../native/AdGuardVpnModule';
 
 type FilterTab = 'ALL' | 'BLOCKED' | 'ALLOWED';
 
@@ -33,7 +33,25 @@ export const QueryLogScreen: React.FC = () => {
   useEffect(() => {
     fetchLogs();
     const interval = setInterval(fetchLogs, 2500);
-    return () => clearInterval(interval);
+
+    let subscription: any = null;
+    try {
+      if (vpnEventEmitter && typeof vpnEventEmitter.addListener === 'function') {
+        subscription = vpnEventEmitter.addListener(
+          'onQueryLogged',
+          (newEntry: QueryLogRecord) => {
+            setLogs((prev) => [newEntry, ...prev.slice(0, 199)]);
+          }
+        );
+      }
+    } catch (e) {}
+
+    return () => {
+      clearInterval(interval);
+      if (subscription && typeof subscription.remove === 'function') {
+        subscription.remove();
+      }
+    };
   }, []);
 
   const handleClear = async () => {
@@ -161,9 +179,9 @@ export const QueryLogScreen: React.FC = () => {
                   {item.isBlocked ? 'BLOCKED' : 'ALLOWED'}
                 </Text>
               </View>
-              <Text style={styles.qtypeBadge}>{item.queryType}</Text>
+              <Text style={styles.qtypeBadge}>{item.queryType || 'A'}</Text>
               <Text style={styles.timestampText}>
-                {new Date(item.timestamp).toLocaleTimeString()}
+                {new Date(item.timestamp || Date.now()).toLocaleTimeString()}
               </Text>
             </View>
 
@@ -173,9 +191,9 @@ export const QueryLogScreen: React.FC = () => {
 
             <View style={styles.cardFooter}>
               <Text style={styles.footerDetail}>
-                {item.matchedRule ? `Rule: ${item.matchedRule}` : `DNS: ${item.upstream}`}
+                {item.matchedRule ? `Rule: ${item.matchedRule}` : `DNS: ${item.upstream || 'Upstream'}`}
               </Text>
-              <Text style={styles.durationText}>{item.durationMs.toFixed(1)} ms</Text>
+              <Text style={styles.durationText}>{(item.durationMs || 0).toFixed(1)} ms</Text>
             </View>
           </TouchableOpacity>
         )}

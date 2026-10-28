@@ -8,44 +8,60 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AdGuardVpn, AppManagementInfo } from '../native/AdGuardVpnModule';
 
+// Module-level in-memory cache to prevent repetitive full-system package scans
+let cachedApps: AppManagementInfo[] = [];
+
 export const AppManagementScreen: React.FC = () => {
-  const [apps, setApps] = useState<AppManagementInfo[]>([]);
+  const [apps, setApps] = useState<AppManagementInfo[]>(cachedApps);
   const [search, setSearch] = useState('');
   const [showSystemApps, setShowSystemApps] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(cachedApps.length === 0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const fetchApps = async () => {
-    setIsLoading(true);
+  const fetchApps = async (isManualRefresh = false) => {
+    if (isManualRefresh) {
+      setIsRefreshing(true);
+    } else if (cachedApps.length === 0) {
+      setIsLoading(true);
+    }
     try {
       if (!AdGuardVpn) return;
       const data = await AdGuardVpn.getInstalledApps();
-      setApps(data || []);
+      if (data && data.length > 0) {
+        cachedApps = data;
+        setApps(data);
+      }
     } catch (e) {
       console.error(e);
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
   };
 
   useEffect(() => {
-    fetchApps();
+    if (cachedApps.length === 0) {
+      fetchApps();
+    }
   }, []);
 
   const handleToggleBypass = async (app: AppManagementInfo) => {
     const newBypass = !app.isVpnBypassed;
     try {
       await AdGuardVpn.setAppBypass(app.packageName, newBypass);
-      setApps((prev) =>
+      const updater = (prev: AppManagementInfo[]) =>
         prev.map((item) =>
           item.packageName === app.packageName
             ? { ...item, isVpnBypassed: newBypass, isFiltered: !newBypass }
             : item
-        )
-      );
+        );
+      cachedApps = updater(cachedApps);
+      setApps(updater);
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Failed to update app routing');
     }
@@ -65,14 +81,67 @@ export const AppManagementScreen: React.FC = () => {
 
   const protectedCount = apps.filter((a) => !a.isVpnBypassed).length;
 
+  const isAllSelected = useMemo(() => {
+    if (filteredApps.length === 0) return false;
+    return filteredApps.every((a) => !a.isVpnBypassed);
+  }, [filteredApps]);
+
+  const handleToggleSelectAll = async () => {
+    const shouldProtectAll = !isAllSelected;
+    const shouldBypass = !shouldProtectAll;
+
+    try {
+      const targetPackages = new Set(filteredApps.map((a) => a.packageName));
+
+      // 1. Instant optimistic UI update
+      const updater = (prev: AppManagementInfo[]) =>
+        prev.map((item) =>
+          targetPackages.has(item.packageName)
+            ? { ...item, isVpnBypassed: shouldBypass, isFiltered: shouldProtectAll }
+            : item
+        );
+      cachedApps = updater(cachedApps);
+      setApps(updater);
+
+      console.log(
+        `[AppManagement] ${shouldProtectAll ? 'Protecting' : 'Bypassing'} ${filteredApps.length} apps`
+      );
+
+      // 2. Persist to native layer in background
+      for (const app of filteredApps) {
+        if (app.isVpnBypassed !== shouldBypass) {
+          AdGuardVpn.setAppBypass(app.packageName, shouldBypass);
+        }
+      }
+    } catch (e: any) {
+      console.error('[AppManagement] Error updating all apps:', e);
+      Alert.alert('Error', e.message || 'Failed to update apps');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header Info */}
       <View style={styles.header}>
-        <Text style={styles.title}>App Management</Text>
-        <Text style={styles.subtitle}>
-          Configure split-tunneling per application ({protectedCount} protected)
-        </Text>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>App Management</Text>
+            <Text style={styles.subtitle}>
+              Configure split-tunneling per application ({protectedCount} protected)
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.rescanButton}
+            onPress={() => fetchApps(true)}
+            activeOpacity={0.7}
+          >
+            {isRefreshing ? (
+              <ActivityIndicator size="small" color="#10B981" />
+            ) : (
+              <Text style={styles.rescanButtonText}>Rescan</Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Search Input */}
@@ -86,15 +155,36 @@ export const AppManagementScreen: React.FC = () => {
         autoCorrect={false}
       />
 
-      {/* Filter Options */}
+      {/* Filter Options & Bulk Actions */}
       <View style={styles.filterRow}>
-        <Text style={styles.filterLabel}>Show System Applications</Text>
-        <Switch
-          value={showSystemApps}
-          onValueChange={setShowSystemApps}
-          trackColor={{ false: '#D1D5DB', true: '#93C5FD' }}
-          thumbColor={showSystemApps ? '#3B82F6' : '#F3F4F6'}
-        />
+        <View style={styles.systemAppGroup}>
+          <Text style={styles.filterLabel}>System Apps</Text>
+          <Switch
+            value={showSystemApps}
+            onValueChange={setShowSystemApps}
+            trackColor={{ false: '#D1D5DB', true: '#93C5FD' }}
+            thumbColor={showSystemApps ? '#3B82F6' : '#F3F4F6'}
+            style={styles.systemAppSwitch}
+          />
+        </View>
+
+        <TouchableOpacity
+          style={[
+            styles.bulkActionButton,
+            isAllSelected ? styles.bulkActionButtonActive : styles.bulkActionButtonInactive,
+          ]}
+          onPress={handleToggleSelectAll}
+          activeOpacity={0.7}
+        >
+          <Text
+            style={[
+              styles.bulkActionText,
+              isAllSelected ? styles.bulkActionTextActive : styles.bulkActionTextInactive,
+            ]}
+          >
+            {isAllSelected ? '✓ Deselect All' : '◻ Select All'}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* App List */}
@@ -107,6 +197,8 @@ export const AppManagementScreen: React.FC = () => {
         <FlatList
           data={filteredApps}
           keyExtractor={(item) => item.packageName}
+          refreshing={isRefreshing}
+          onRefresh={() => fetchApps(true)}
           ListEmptyComponent={
             <View style={styles.centerContainer}>
               <Text style={styles.emptyText}>No applications found matching query.</Text>
@@ -162,6 +254,27 @@ const styles = StyleSheet.create({
   header: {
     marginBottom: 12,
   },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  rescanButton: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 64,
+  },
+  rescanButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#059669',
+  },
   title: {
     fontSize: 20,
     fontWeight: '800',
@@ -199,6 +312,38 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#374151',
     fontWeight: '600',
+  },
+  systemAppGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  systemAppSwitch: {
+    marginLeft: 8,
+    transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }],
+  },
+  bulkActionButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  bulkActionButtonActive: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+  bulkActionButtonInactive: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+  },
+  bulkActionText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  bulkActionTextActive: {
+    color: '#DC2626',
+  },
+  bulkActionTextInactive: {
+    color: '#059669',
   },
   centerContainer: {
     flex: 1,

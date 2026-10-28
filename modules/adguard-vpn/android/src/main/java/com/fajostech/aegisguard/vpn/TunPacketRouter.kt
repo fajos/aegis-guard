@@ -39,7 +39,7 @@ class TunPacketRouter(
         vpnService = vpnService
     )
 
-    private val workerPool: ExecutorService = Executors.newFixedThreadPool(4)
+    private val workerPool: ExecutorService = Executors.newCachedThreadPool()
 
     override fun run() {
         isRunning.set(true)
@@ -52,7 +52,7 @@ class TunPacketRouter(
         while (isRunning.get()) {
             try {
                 val length = inputStream.read(buffer)
-                if (length <= 0) break
+                if (length <= 0) continue
 
                 handlePacket(buffer, length, outputStream)
             } catch (e: IOException) {
@@ -111,36 +111,46 @@ class TunPacketRouter(
         // Evaluate domain against AdGuard filtering rules
         val eval = filterEngine.evaluate(domain, question.type)
 
-        val dnsResponseBytes: ByteArray?
-        val upstreamUsed: String?
+        var dnsResponseBytes: ByteArray? = null
+        var upstreamUsed: String? = null
 
-        if (eval.isBlocked) {
-            // Generate synthetic blocked answer or rewrite
-            dnsResponseBytes = DnsPacket.createBlockedResponse(
-                request = dnsPacket,
-                blockingMode = eval.blockingMode,
-                ttl = eval.ttl,
-                rewriteIp = eval.rewriteIp,
-                rewriteCname = eval.rewriteCname
-            )
-            upstreamUsed = if (eval.isRewrite) "DNS Rewrite" else "Local Filter"
-        } else {
-            // Forward to real upstream DNS server via parallel protected sockets
-            dnsResponseBytes = parallelResolver.resolve(dnsPayload, domain, question.type)
-            upstreamUsed = config.upstreamDnsServers.firstOrNull() ?: "Upstream"
+        try {
+            if (eval.isBlocked) {
+                // Generate synthetic blocked answer or rewrite
+                dnsResponseBytes = DnsPacket.createBlockedResponse(
+                    request = dnsPacket,
+                    blockingMode = eval.blockingMode,
+                    ttl = eval.ttl,
+                    rewriteIp = eval.rewriteIp,
+                    rewriteCname = eval.rewriteCname
+                )
+                upstreamUsed = if (eval.isRewrite) "DNS Rewrite" else "Local Filter"
+            } else {
+                // Forward to real upstream DNS server via parallel protected sockets
+                dnsResponseBytes = parallelResolver.resolve(dnsPayload, domain, question.type)
+                upstreamUsed = if (dnsResponseBytes != null) {
+                    config.upstreamDnsServers.firstOrNull() ?: "Upstream"
+                } else {
+                    "Upstream (Timeout)"
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error resolving DNS query for $domain", e)
+            dnsResponseBytes = null
+            upstreamUsed = "Error"
         }
 
         val duration = System.currentTimeMillis() - startTime
 
-        // Log entry
+        // Guaranteed log entry
         FilteringLog.addEntry(
             QueryLogEntry(
                 domain = domain,
-                queryType = if (question.type == 28) "AAAA" else "A",
+                queryType = if (question.type == 28) "AAAA" else if (question.type == 65) "HTTPS" else "A",
                 isBlocked = eval.isBlocked,
                 matchedRule = eval.matchedRule,
                 durationMs = duration,
-                upstream = upstreamUsed
+                upstream = upstreamUsed ?: "Unknown"
             )
         )
 

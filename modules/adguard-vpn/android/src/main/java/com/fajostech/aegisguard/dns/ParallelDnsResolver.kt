@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
@@ -39,7 +40,7 @@ class ParallelDnsResolver(
             return cached
         }
 
-        // 2. Race parallel upstreams
+        // 2. Race parallel upstreams with hard timeout
         return runBlocking {
             val winner = CompletableDeferred<ByteArray?>()
             val jobs = mutableListOf<Job>()
@@ -64,7 +65,9 @@ class ParallelDnsResolver(
             jobs.add(dohJob)
 
             val fastestResponse = try {
-                winner.await()
+                withTimeoutOrNull(timeoutMs.toLong()) {
+                    winner.await()
+                }
             } catch (e: Exception) {
                 null
             }
@@ -81,8 +84,9 @@ class ParallelDnsResolver(
     }
 
     private fun querySingleUpstream(server: String, queryBytes: ByteArray): ByteArray? {
+        var socket: DatagramSocket? = null
         try {
-            val socket = DatagramSocket()
+            socket = DatagramSocket()
             vpnService?.protect(socket)
             socket.soTimeout = timeoutMs
 
@@ -93,7 +97,6 @@ class ParallelDnsResolver(
             val inBuffer = ByteArray(2048)
             val inPacket = DatagramPacket(inBuffer, inBuffer.size)
             socket.receive(inPacket)
-            socket.close()
 
             val result = ByteArray(inPacket.length)
             System.arraycopy(inBuffer, 0, result, 0, inPacket.length)
@@ -102,6 +105,8 @@ class ParallelDnsResolver(
             return null
         } catch (e: Exception) {
             return null
+        } finally {
+            try { socket?.close() } catch (e: Exception) {}
         }
     }
 }

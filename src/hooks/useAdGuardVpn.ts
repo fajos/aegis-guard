@@ -7,24 +7,32 @@ import {
   QueryLogRecord,
 } from '../native/AdGuardVpnModule';
 
+let cachedIsRunning = false;
+let cachedStats: VpnStatistics = {
+  totalQueries: 0,
+  blockedQueries: 0,
+  dataSavedBytes: 0,
+  blockRate: 0,
+  ruleCount: 0,
+};
+let cachedRecentLogs: QueryLogRecord[] = [];
+
 export function useAdGuardVpn() {
-  const [isRunning, setIsRunning] = useState<boolean>(false);
-  const [stats, setStats] = useState<VpnStatistics>({
-    totalQueries: 0,
-    blockedQueries: 0,
-    dataSavedBytes: 0,
-    blockRate: 0,
-    ruleCount: 0,
-  });
-  const [recentLogs, setRecentLogs] = useState<QueryLogRecord[]>([]);
+  const [isRunning, setIsRunning] = useState<boolean>(cachedIsRunning);
+  const [stats, setStats] = useState<VpnStatistics>(cachedStats);
+  const [recentLogs, setRecentLogs] = useState<QueryLogRecord[]>(cachedRecentLogs);
 
   const refreshState = useCallback(async () => {
     try {
       if (!AdGuardVpn) return;
       const running = await AdGuardVpn.isRunning();
+      cachedIsRunning = running;
       setIsRunning(running);
       const s = await AdGuardVpn.getStatistics();
-      if (s) setStats(s);
+      if (s) {
+        cachedStats = s;
+        setStats(s);
+      }
     } catch (e) {
       console.error('[useAdGuardVpn] refresh error:', e);
     }
@@ -41,9 +49,11 @@ export function useAdGuardVpn() {
       }
       if (isRunning) {
         await AdGuardVpn.stopVpn();
+        cachedIsRunning = false;
         setIsRunning(false);
       } else {
         await AdGuardVpn.startVpn();
+        cachedIsRunning = true;
         setIsRunning(true);
       }
       refreshState();
@@ -85,7 +95,8 @@ export function useAdGuardVpn() {
         subscription = vpnEventEmitter.addListener(
           'onQueryLogged',
           (log: QueryLogRecord) => {
-            setRecentLogs((prev) => [log, ...prev.slice(0, 49)]);
+            cachedRecentLogs = [log, ...cachedRecentLogs.slice(0, 49)];
+            setRecentLogs(cachedRecentLogs);
           }
         );
       }

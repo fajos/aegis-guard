@@ -12,17 +12,50 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AdGuardVpn, FilterSubscriptionInfo } from '../native/AdGuardVpnModule';
 
+// In-memory cache for instant filter subscriptions rendering across tab switches
+let cachedFilters: FilterSubscriptionInfo[] = [];
+
 export const FiltersScreen: React.FC = () => {
-  const [filters, setFilters] = useState<FilterSubscriptionInfo[]>([]);
+  const [filters, setFilters] = useState<FilterSubscriptionInfo[]>(cachedFilters);
+  const [engineRuleCount, setEngineRuleCount] = useState<number>(0);
   const [isUpdating, setIsUpdating] = useState<boolean>(false);
 
   const fetchFilters = async () => {
     try {
-      if (!AdGuardVpn) return;
+      console.log('[FiltersScreen] Fetching filter subscriptions from native module...');
+      if (!AdGuardVpn) {
+        console.warn('[FiltersScreen] AdGuardVpn native module is null / not linked');
+        return;
+      }
+
       const data = await AdGuardVpn.getFilterSubscriptions();
-      setFilters(data || []);
+      console.log('[FiltersScreen] Received subscriptions:', JSON.stringify(data, null, 2));
+
+      if (data && data.length > 0) {
+        // Smart merge: Preserve known downloaded rule counts if bridge reports 0 on reload
+        const merged = data.map((sub) => {
+          const existing = cachedFilters.find((c) => c.id === sub.id);
+          const preservedCount = sub.ruleCount > 0 ? sub.ruleCount : (existing?.ruleCount || 0);
+          const preservedUpdated = sub.lastUpdated > 0 ? sub.lastUpdated : (existing?.lastUpdated || 0);
+          return {
+            ...sub,
+            ruleCount: preservedCount,
+            lastUpdated: preservedUpdated,
+          };
+        });
+        cachedFilters = merged;
+        setFilters(merged);
+      } else {
+        console.warn('[FiltersScreen] Bridge returned empty subscriptions array');
+      }
+
+      const stats = await AdGuardVpn.getStatistics();
+      console.log('[FiltersScreen] Engine statistics:', stats);
+      if (stats && stats.ruleCount) {
+        setEngineRuleCount(stats.ruleCount);
+      }
     } catch (e) {
-      console.error(e);
+      console.error('[FiltersScreen] Error in fetchFilters:', e);
     }
   };
 
@@ -32,44 +65,57 @@ export const FiltersScreen: React.FC = () => {
 
   const handleToggle = async (filter: FilterSubscriptionInfo) => {
     const newStatus = !filter.isEnabled;
+    console.log(`[FiltersScreen] Toggling subscription ${filter.id} (${filter.name}) -> ${newStatus}`);
     try {
       await AdGuardVpn.toggleFilterSubscription(filter.id, newStatus);
-      setFilters((prev) =>
-        prev.map((f) => (f.id === filter.id ? { ...f, isEnabled: newStatus } : f))
-      );
+      const updater = (prev: FilterSubscriptionInfo[]) =>
+        prev.map((f) => (f.id === filter.id ? { ...f, isEnabled: newStatus } : f));
+      cachedFilters = updater(cachedFilters);
+      setFilters(updater);
+      console.log(`[FiltersScreen] Successfully toggled filter ${filter.id}`);
+      fetchFilters();
     } catch (e: any) {
+      console.error(`[FiltersScreen] Failed to toggle filter ${filter.id}:`, e);
       Alert.alert('Error', e.message || 'Failed to toggle filter');
     }
   };
 
   const handleCheckUpdates = async () => {
+    console.log('[FiltersScreen] Starting filter subscriptions update...');
     setIsUpdating(true);
     try {
       const updatedCount = await AdGuardVpn.updateFilterSubscriptions();
+      console.log(`[FiltersScreen] Downloaded and reloaded ${updatedCount} subscription(s)`);
       Alert.alert(
         'Filters Updated',
         `Successfully downloaded and reloaded ${updatedCount} filter subscription(s).`
       );
-      fetchFilters();
+      await fetchFilters();
     } catch (e: any) {
+      console.error('[FiltersScreen] Failed to update filters:', e);
       Alert.alert('Update Failed', e.message || 'Could not update filters');
     } finally {
       setIsUpdating(false);
     }
   };
 
-  const totalActiveRules = filters
+  const calculatedRules = filters
     .filter((f) => f.isEnabled)
     .reduce((sum, f) => sum + f.ruleCount, 0);
+
+  const totalActiveRules = Math.max(calculatedRules, engineRuleCount);
 
   return (
     <SafeAreaView style={styles.container}>
       {/* Header & Update Button */}
       <View style={styles.headerRow}>
-        <View>
+        <View style={{ flex: 1, marginRight: 8 }}>
           <Text style={styles.title}>Filter Subscriptions</Text>
           <Text style={styles.subtitle}>
-            {totalActiveRules.toLocaleString()} active blocking rules
+            {totalActiveRules > 0 ? `${totalActiveRules.toLocaleString()} active rules` : '0 active rules'}
+            {engineRuleCount > 0 && calculatedRules > engineRuleCount
+              ? ` (${engineRuleCount.toLocaleString()} unique in engine)`
+              : ''}
           </Text>
         </View>
         <TouchableOpacity
@@ -112,10 +158,16 @@ export const FiltersScreen: React.FC = () => {
 
             <View style={styles.footerRow}>
               <Text style={styles.ruleCount}>
-                {item.ruleCount.toLocaleString()} rules
+                {item.ruleCount > 0
+                  ? `${item.ruleCount.toLocaleString()} rules`
+                  : item.isEnabled
+                  ? 'Ready to sync'
+                  : 'Disabled'}
               </Text>
               <Text style={styles.lastUpdated}>
-                Updated: {new Date(item.lastUpdated).toLocaleDateString()}
+                {item.lastUpdated > 0
+                  ? `Updated: ${new Date(item.lastUpdated).toLocaleDateString()}`
+                  : 'Tap Check Updates to sync'}
               </Text>
             </View>
           </View>

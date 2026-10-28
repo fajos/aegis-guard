@@ -179,6 +179,18 @@ class LocalVpnService : VpnService() {
                 override fun onAvailable(network: Network) {
                     Log.d(TAG, "Active network changed: $network")
                     setUnderlyingNetworks(arrayOf(network))
+
+                    // Extract device's active network DNS servers (e.g. Wi-Fi router or cellular DNS)
+                    try {
+                        val lp = connectivityManager.getLinkProperties(network)
+                        val systemDns = lp?.dnsServers?.mapNotNull { it.hostAddress } ?: emptyList()
+                        if (systemDns.isNotEmpty()) {
+                            val merged = (systemDns + currentConfig.upstreamDnsServers).distinct()
+                            currentConfig = currentConfig.copy(upstreamDnsServers = merged)
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Could not extract system DNS servers", e)
+                    }
                 }
 
                 override fun onLost(network: Network) {

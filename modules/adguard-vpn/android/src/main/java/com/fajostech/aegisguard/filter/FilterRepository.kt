@@ -22,14 +22,19 @@ class FilterRepository(private val context: Context) {
 
     private val filtersDir = File(context.filesDir, "filters").apply { mkdirs() }
     private val userRulesFile = File(context.filesDir, "user_rules.txt")
+    private val prefs = context.getSharedPreferences("adguard_filter_prefs", Context.MODE_PRIVATE)
 
     private val subscriptions = mutableListOf<FilterSubscription>()
 
     init {
+        seedDefaultRulesIfEmpty()
         initDefaultSubscriptions()
     }
 
     private fun initDefaultSubscriptions() {
+        val disabledIds = prefs.getStringSet("disabled_subscription_ids", emptySet())
+            ?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet()
+
         subscriptions.clear()
         subscriptions.add(
             FilterSubscription(
@@ -37,7 +42,7 @@ class FilterRepository(private val context: Context) {
                 name = "AdGuard Base Filter",
                 description = "Comprehensive ad-blocking rules for popular web applications",
                 url = "https://filters.adtidy.org/extension/chromium/filters/2.txt",
-                isEnabled = true
+                isEnabled = !disabledIds.contains(1)
             )
         )
         subscriptions.add(
@@ -46,7 +51,7 @@ class FilterRepository(private val context: Context) {
                 name = "AdGuard Tracking Protection",
                 description = "Blocks telemetry, analytics, trackers and user profiling scripts",
                 url = "https://filters.adtidy.org/extension/chromium/filters/3.txt",
-                isEnabled = true
+                isEnabled = !disabledIds.contains(2)
             )
         )
         subscriptions.add(
@@ -55,7 +60,7 @@ class FilterRepository(private val context: Context) {
                 name = "AdGuard Mobile Ads Filter",
                 description = "Specialized filter targeting mobile advertising networks & in-app ads",
                 url = "https://filters.adtidy.org/extension/chromium/filters/11.txt",
-                isEnabled = true
+                isEnabled = !disabledIds.contains(3)
             )
         )
         subscriptions.add(
@@ -64,12 +69,62 @@ class FilterRepository(private val context: Context) {
                 name = "AdGuard DNS Filter",
                 description = "Optimized DNS filter rules composed for high-throughput DNS proxies",
                 url = "https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt",
-                isEnabled = true
+                isEnabled = !disabledIds.contains(4)
             )
         )
+
+        // Read rule count and timestamps from existing cached files on disk immediately
+        for (sub in subscriptions) {
+            val file = File(filtersDir, "filter_${sub.id}.txt")
+            if (file.exists()) {
+                sub.ruleCount = countRulesInFile(file)
+                sub.lastUpdated = file.lastModified()
+            }
+        }
     }
 
-    fun getSubscriptions(): List<FilterSubscription> = subscriptions.toList()
+    private fun countRulesInFile(file: File): Int {
+        if (!file.exists()) return 0
+        var count = 0
+        try {
+            file.forEachLine { line ->
+                val trimmed = line.trim()
+                if (trimmed.isNotEmpty() && !trimmed.startsWith("!") && !trimmed.startsWith("#")) {
+                    count++
+                }
+            }
+        } catch (e: Exception) {
+            return 0
+        }
+        return count
+    }
+
+    fun setSubscriptionEnabled(id: Int, enabled: Boolean) {
+        val sub = subscriptions.find { it.id == id } ?: return
+        sub.isEnabled = enabled
+
+        val disabledIds = prefs.getStringSet("disabled_subscription_ids", emptySet())
+            ?.toMutableSet() ?: mutableSetOf()
+        if (enabled) {
+            disabledIds.remove(id.toString())
+        } else {
+            disabledIds.add(id.toString())
+        }
+        prefs.edit().putStringSet("disabled_subscription_ids", disabledIds).apply()
+    }
+
+    fun getSubscriptions(): List<FilterSubscription> {
+        for (sub in subscriptions) {
+            if (sub.ruleCount == 0) {
+                val file = File(filtersDir, "filter_${sub.id}.txt")
+                if (file.exists()) {
+                    sub.ruleCount = countRulesInFile(file)
+                    sub.lastUpdated = file.lastModified()
+                }
+            }
+        }
+        return subscriptions.toList()
+    }
 
     fun initializeDefaults(engine: DnsFilterEngine) {
         // Load custom user rules
@@ -169,16 +224,22 @@ class FilterRepository(private val context: Context) {
     fun reloadAll(engine: DnsFilterEngine) {
         engine.clearRules()
 
-        // Reload user rules
+        // 1. Re-load baseline default ad/tracker rules so protection NEVER drops to zero
+        engine.loadDefaultRules()
+
+        // 2. Reload user rules
         loadUserRules(engine)
 
-        // Reload enabled subscriptions
+        // 3. Reload enabled subscriptions
         for (sub in subscriptions) {
-            if (!sub.isEnabled) continue
             val file = File(filtersDir, "filter_${sub.id}.txt")
-            if (file.exists()) {
+            if (file.exists() && sub.isEnabled) {
                 val loaded = file.inputStream().use { engine.loadRulesFromStream(it) }
                 sub.ruleCount = loaded
+                sub.lastUpdated = file.lastModified()
+            } else if (file.exists()) {
+                sub.ruleCount = countRulesInFile(file)
+                sub.lastUpdated = file.lastModified()
             }
         }
     }

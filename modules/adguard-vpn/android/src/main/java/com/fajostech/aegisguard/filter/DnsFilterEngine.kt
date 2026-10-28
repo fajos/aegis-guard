@@ -12,7 +12,7 @@ class DnsFilterEngine(
     var blockingMode: BlockingMode = BlockingMode.ADDRESS,
     var blockedTtlSecs: Long = 3600L,
     var blockIpv6: Boolean = false,
-    var blockEch: Boolean = true,
+    var blockEch: Boolean = false,
     var blockH3Alpn: Boolean = false
 ) {
     private val matcher = RuleMatcher()
@@ -43,13 +43,15 @@ class DnsFilterEngine(
             )
         }
 
-        // 2. Encrypted Client Hello (ECH) bypass block (HTTPS/SVCB query type 65)
+        // 2. Encrypted Client Hello (ECH) block (HTTPS/SVCB query type 65)
+        // Must return NODATA (NOERROR with 0 answers via ADDRESS mode) so RFC 9460 clients
+        // fall back cleanly to standard A/AAAA records without failing the entire domain.
         if (blockEch && queryType == 65) {
             blockedQueries.incrementAndGet()
             return EvaluationResult(
                 isBlocked = true,
                 domain = domain,
-                blockingMode = BlockingMode.NXDOMAIN,
+                blockingMode = BlockingMode.ADDRESS,
                 ttl = 300L,
                 matchedRule = "Block ECH (Encrypted Client Hello)"
             )
@@ -129,7 +131,7 @@ class DnsFilterEngine(
         matcher.clear()
     }
 
-    private fun loadDefaultRules() {
+    fun loadDefaultRules() {
         val defaultRules = listOf(
             "||doubleclick.net^",
             "||google-analytics.com^",

@@ -40,10 +40,14 @@ const PRESET_PROVIDERS: PresetServer[] = [
   },
 ];
 
+// In-memory cache for instant DNS configuration rendering
+let cachedServers: string[] = ['94.140.14.14', '1.1.1.1'];
+let cachedBlockingMode: 'ADDRESS' | 'NXDOMAIN' | 'REFUSED' = 'ADDRESS';
+
 export const DnsSettingsScreen: React.FC = () => {
-  const [selectedServers, setSelectedServers] = useState<string[]>(['94.140.14.14', '1.1.1.1']);
+  const [selectedServers, setSelectedServers] = useState<string[]>(cachedServers);
   const [customServer, setCustomServer] = useState('');
-  const [blockingMode, setBlockingMode] = useState<'ADDRESS' | 'NXDOMAIN' | 'REFUSED'>('ADDRESS');
+  const [blockingMode, setBlockingMode] = useState<'ADDRESS' | 'NXDOMAIN' | 'REFUSED'>(cachedBlockingMode);
 
   useEffect(() => {
     (async () => {
@@ -51,8 +55,12 @@ export const DnsSettingsScreen: React.FC = () => {
         if (!AdGuardVpn) return;
         const cfg = await AdGuardVpn.getDnsSettings();
         if (cfg) {
-          setSelectedServers(cfg.upstreamDnsServers || ['94.140.14.14']);
-          setBlockingMode(cfg.blockingMode || 'ADDRESS');
+          const servers = cfg.upstreamDnsServers || ['94.140.14.14'];
+          const mode = cfg.blockingMode || 'ADDRESS';
+          cachedServers = servers;
+          cachedBlockingMode = mode;
+          setSelectedServers(servers);
+          setBlockingMode(mode);
         }
       } catch (e) {
         console.error(e);
@@ -84,6 +92,8 @@ export const DnsSettingsScreen: React.FC = () => {
   const handleSave = async () => {
     try {
       await AdGuardVpn.setDnsSettings(selectedServers, blockingMode);
+      cachedServers = selectedServers;
+      cachedBlockingMode = blockingMode;
       Alert.alert('Settings Saved', 'Upstream DNS and blocking mode updated successfully.');
     } catch (e: any) {
       Alert.alert('Save Failed', e.message || 'Could not update DNS settings');

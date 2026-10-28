@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "esnext",
-    "module": "commonjs",
+    "module": "esnext",
     "lib": [
       "es2019",
       "dom"
@@ -11,8 +11,7 @@
     "noEmit": true,
     "isolatedModules": true,
     "strict": true,
-      "moduleResolution": "bundler",
-      "ignoreDeprecations": "6.0",
+    "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,

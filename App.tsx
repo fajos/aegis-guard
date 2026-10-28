@@ -5,7 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { DashboardScreen } from './src/screens/DashboardScreen';
 import { QueryLogScreen } from './src/screens/QueryLogScreen';
@@ -31,61 +31,72 @@ const TABS: TabItem[] = [
   { id: 'rules', title: 'Rules', icon: '✏️' },
 ];
 
-export default function App(): React.JSX.Element {
+function MainNavigator(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const insets = useSafeAreaInsets();
 
-  const renderScreen = () => {
-    switch (activeTab) {
-      case 'dashboard':
-        return <DashboardScreen />;
-      case 'queryLog':
-        return <QueryLogScreen />;
-      case 'filters':
-        return <FiltersScreen />;
-      case 'dns':
-        return <DnsSettingsScreen />;
-      case 'apps':
-        return <AppManagementScreen />;
-      case 'rules':
-        return <UserRulesScreen />;
-      default:
-        return <DashboardScreen />;
-    }
-  };
+  // Ensure bottom padding respects Android edge-to-edge navigation bar / gesture bar
+  const bottomPadding = Math.max(insets.bottom, 12);
 
   return (
-    <SafeAreaProvider>
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-        <StatusBar style="dark" />
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <StatusBar style="dark" />
 
-        {/* Screen Body */}
-        <View style={styles.screenContainer}>{renderScreen()}</View>
-
-        {/* Bottom Navigation Tab Bar */}
-        <View style={styles.tabBar}>
-          {TABS.map((tab) => {
-            const isSelected = activeTab === tab.id;
-            return (
-              <TouchableOpacity
-                key={tab.id}
-                style={[styles.tabButton, isSelected && styles.tabButtonSelected]}
-                onPress={() => setActiveTab(tab.id)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.tabIcon}>{tab.icon}</Text>
-                <Text
-                  style={[
-                    styles.tabLabel,
-                    isSelected && styles.tabLabelSelected,
-                  ]}
-                >
-                  {tab.title}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+      {/* Screen Body - Persistent Screen Instances across Tabs */}
+      <View style={styles.screenContainer}>
+        <View style={[styles.screenWrapper, activeTab !== 'dashboard' && styles.hidden]}>
+          <DashboardScreen />
         </View>
-      </SafeAreaView>
+        <View style={[styles.screenWrapper, activeTab !== 'queryLog' && styles.hidden]}>
+          <QueryLogScreen />
+        </View>
+        <View style={[styles.screenWrapper, activeTab !== 'filters' && styles.hidden]}>
+          <FiltersScreen />
+        </View>
+        <View style={[styles.screenWrapper, activeTab !== 'dns' && styles.hidden]}>
+          <DnsSettingsScreen />
+        </View>
+        <View style={[styles.screenWrapper, activeTab !== 'apps' && styles.hidden]}>
+          <AppManagementScreen />
+        </View>
+        <View style={[styles.screenWrapper, activeTab !== 'rules' && styles.hidden]}>
+          <UserRulesScreen />
+        </View>
+      </View>
+
+      {/* Bottom Navigation Tab Bar with Safe Area Inset Protection */}
+      <View style={[styles.tabBar, { paddingBottom: bottomPadding }]}>
+        {TABS.map((tab) => {
+          const isSelected = activeTab === tab.id;
+          return (
+            <TouchableOpacity
+              key={tab.id}
+              style={[styles.tabButton, isSelected && styles.tabButtonSelected]}
+              onPress={() => setActiveTab(tab.id)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.tabIcon}>{tab.icon}</Text>
+              <Text
+                style={[
+                  styles.tabLabel,
+                  isSelected && styles.tabLabelSelected,
+                ]}
+                numberOfLines={1}
+              >
+                {tab.title}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </SafeAreaView>
+  );
+}
+
+export default function App(): React.JSX.Element {
+  return (
+    <SafeAreaProvider>
+      <MainNavigator />
     </SafeAreaProvider>
   );
 }
@@ -98,12 +109,18 @@ const styles = StyleSheet.create({
   screenContainer: {
     flex: 1,
   },
+  screenWrapper: {
+    flex: 1,
+  },
+  hidden: {
+    display: 'none',
+  },
   tabBar: {
     flexDirection: 'row',
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#E5E7EB',
-    paddingVertical: 6,
+    paddingTop: 8,
     paddingHorizontal: 4,
     elevation: 8,
     shadowColor: '#000',
@@ -114,6 +131,7 @@ const styles = StyleSheet.create({
   tabButton: {
     flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 4,
     borderRadius: 8,
   },
@@ -121,8 +139,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0FDF4',
   },
   tabIcon: {
-    fontSize: 18,
-    marginBottom: 2,
+    fontSize: 19,
+    marginBottom: 3,
   },
   tabLabel: {
     fontSize: 11,

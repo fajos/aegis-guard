@@ -1,6 +1,7 @@
 package com.fajostech.aegisguard.bridge
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import com.fajostech.aegisguard.appmanagement.AppManager
@@ -33,6 +34,7 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
 
     private val filterRepository by lazy { FilterRepository(reactContext) }
     private val appManager by lazy { AppManager(reactContext) }
+    private val dnsPrefs by lazy { reactContext.getSharedPreferences("adguard_dns_prefs", Context.MODE_PRIVATE) }
 
     init {
         reactContext.addActivityEventListener(this)
@@ -43,6 +45,20 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
         } catch (e: Exception) {
             // Non-fatal fallback
         }
+
+        // Restore persisted DNS settings
+        try {
+            val savedServers = dnsPrefs.getStringSet("upstream_servers", null)?.toList()
+            val savedModeStr = dnsPrefs.getString("blocking_mode", null)
+            val savedMode = if (savedModeStr != null) try { BlockingMode.valueOf(savedModeStr) } catch (e: Exception) { null } else null
+
+            if (savedServers != null || savedMode != null) {
+                LocalVpnService.currentConfig = LocalVpnService.currentConfig.copy(
+                    upstreamDnsServers = savedServers ?: LocalVpnService.currentConfig.upstreamDnsServers,
+                    blockingMode = savedMode ?: LocalVpnService.currentConfig.blockingMode
+                )
+            }
+        } catch (e: Exception) {}
 
         // Stream live DNS queries to React Native JS listeners
         FilteringLog.addListener { entry ->
@@ -163,9 +179,10 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun toggleFilterSubscription(id: Double, enabled: Boolean, promise: Promise) {
-        val sub = filterRepository.getSubscriptions().find { it.id == id.toInt() }
+        val subId = id.toInt()
+        val sub = filterRepository.getSubscriptions().find { it.id == subId }
         if (sub != null) {
-            sub.isEnabled = enabled
+            filterRepository.setSubscriptionEnabled(subId, enabled)
             filterRepository.reloadAll(LocalVpnService.filterEngine)
             promise.resolve(true)
         } else {
@@ -277,6 +294,12 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
             upstreamDnsServers = servers,
             blockingMode = mode
         )
+
+        dnsPrefs.edit()
+            .putStringSet("upstream_servers", servers.toSet())
+            .putString("blocking_mode", mode.name)
+            .apply()
+
         promise.resolve(true)
     }
 

@@ -19,28 +19,40 @@ const SYNTAX_TIPS = [
   { syntax: '! Comment line', note: 'Comments ignored by parser' },
 ];
 
+// In-memory cache for instant user rules editor rendering
+let cachedUserRules = '';
+
 export const UserRulesScreen: React.FC = () => {
-  const [rules, setRules] = useState<string>('');
+  const [rules, setRules] = useState<string>(cachedUserRules);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
+        console.log('[UserRulesScreen] Loading custom rules from disk...');
         if (!AdGuardVpn) return;
         const text = await AdGuardVpn.getUserRules();
-        setRules(text || '');
+        console.log('[UserRulesScreen] Loaded custom rules text:', text);
+        if (text !== null && text !== undefined) {
+          cachedUserRules = text;
+          setRules(text);
+        }
       } catch (e) {
-        console.error(e);
+        console.error('[UserRulesScreen] Error loading user rules:', e);
       }
     })();
   }, []);
 
   const handleSave = async () => {
     setIsSaving(true);
+    console.log('[UserRulesScreen] Saving rules to disk:\n', rules);
     try {
       await AdGuardVpn.saveUserRules(rules);
+      cachedUserRules = rules;
+      console.log('[UserRulesScreen] Rules successfully parsed and reloaded into engine');
       Alert.alert('Rules Saved', 'Your custom rules have been parsed and reloaded into the filter engine.');
     } catch (e: any) {
+      console.error('[UserRulesScreen] Failed to save rules:', e);
       Alert.alert('Error', e.message || 'Failed to save rules');
     } finally {
       setIsSaving(false);
