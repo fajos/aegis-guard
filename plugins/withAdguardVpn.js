@@ -1,7 +1,7 @@
 let withAndroidManifest, withEntitlementsPlist, createRunOncePlugin;
 
 try {
-  const plugins = require('@expo/config-plugins');
+  const plugins = require('expo/config-plugins');
   withAndroidManifest = plugins.withAndroidManifest;
   withEntitlementsPlist = plugins.withEntitlementsPlist;
   createRunOncePlugin = plugins.createRunOncePlugin;

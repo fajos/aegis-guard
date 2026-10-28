@@ -1,81 +1,58 @@
-<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
-
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
-
-    <application
-        android:name=".MainApplication"
-        android:allowBackup="true"
-        android:icon="@android:drawable/sym_def_app_icon"
-        android:label="@string/app_name"
-        android:roundIcon="@android:drawable/sym_def_app_icon"
-        android:supportsRtl="true"
-        android:theme="@style/Theme.AppCompat.Light.NoActionBar">
-
-        <activity
-            android:name=".MainActivity"
-            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
-            android:exported="true"
-            android:launchMode="singleTask"
-            android:windowSoftInputMode="adjustResize">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-
-        <!-- Local VPN Service matching AdGuard's LocalVpnService -->
-        <service
-            android:name=".vpn.LocalVpnService"
-            android:description="@string/vpn_service_desc"
-            android:exported="false"
-            android:foregroundServiceType="specialUse"
-            android:permission="android.permission.BIND_VPN_SERVICE">
-            <intent-filter>
-                <action android:name="android.net.VpnService" />
-            </intent-filter>
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Local VPN for DNS content filtering and privacy protection" />
-        </service>
-
-        <!-- Watchdog Service to monitor connection health -->
-        <service
-            android:name=".vpn.WatchdogService"
-            android:exported="false" />
-
-        <!-- Quick Settings Tile for 1-click status bar toggle -->
-        <service
-            android:name=".vpn.AdguardTileService"
-            android:icon="@android:drawable/ic_lock_lock"
-            android:label="@string/app_name"
-            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.service.quicksettings.action.QS_TILE" />
-            </intent-filter>
-        </service>
-
-        <!-- Boot Receiver for Auto-start on device boot -->
-        <receiver
-            android:name=".vpn.BootUpReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
-            </intent-filter>
-        </receiver>
-
-    </application>
-
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+  <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+  <uses-permission android:name="android.permission.INTERNET"/>
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+  <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission"/>
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+  <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+  <application android:name=".MainApplication" android:allowBackup="true" android:icon="@android:drawable/sym_def_app_icon" android:label="@string/app_name" android:roundIcon="@mipmap/ic_launcher_round" android:supportsRtl="true" android:theme="@style/Theme.AppCompat.Light.NoActionBar" android:enableOnBackInvokedCallback="false">
+    <meta-data android:name="expo.modules.updates.ENABLED" android:value="false"/>
+    <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>
+    <meta-data android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS" android:value="0"/>
+    <service android:name=".vpn.LocalVpnService" android:description="@string/vpn_service_desc" android:exported="false" android:foregroundServiceType="specialUse" android:permission="android.permission.BIND_VPN_SERVICE">
+      <intent-filter>
+        <action android:name="android.net.VpnService"/>
+      </intent-filter>
+      <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Local VPN for DNS content filtering and privacy protection"/>
+    </service>
+    <service android:name=".vpn.WatchdogService" android:exported="false"/>
+    <service android:name=".vpn.AdguardTileService" android:icon="@android:drawable/ic_lock_lock" android:label="@string/app_name" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:exported="true">
+      <intent-filter>
+        <action android:name="android.service.quicksettings.action.QS_TILE"/>
+      </intent-filter>
+    </service>
+    <service android:name="com.fajostech.aegisguard.vpn.LocalVpnService" android:description="@string/vpn_service_desc" android:exported="false" android:foregroundServiceType="specialUse" android:permission="android.permission.BIND_VPN_SERVICE">
+      <intent-filter>
+        <action android:name="android.net.VpnService"/>
+      </intent-filter>
+      <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Local VPN for DNS content filtering and privacy protection"/>
+    </service>
+    <service android:name="com.fajostech.aegisguard.vpn.WatchdogService" android:exported="false"/>
+    <service android:name="com.fajostech.aegisguard.vpn.AdguardTileService" android:icon="@android:drawable/ic_lock_lock" android:label="Aegis Guard" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:exported="true">
+      <intent-filter>
+        <action android:name="android.service.quicksettings.action.QS_TILE"/>
+      </intent-filter>
+    </service>
+    <activity android:name=".MainActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode" android:exported="true" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:screenOrientation="portrait">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <receiver android:name=".vpn.BootUpReceiver" android:enabled="true" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED"/>
+        <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+      </intent-filter>
+    </receiver>
+    <receiver android:name="com.fajostech.aegisguard.vpn.BootUpReceiver" android:enabled="true" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED"/>
+        <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+      </intent-filter>
+    </receiver>
+  </application>
 </manifest>
