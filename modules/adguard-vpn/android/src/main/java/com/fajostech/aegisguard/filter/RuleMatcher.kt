@@ -142,6 +142,8 @@ class RuleMatcher {
             val dotIndex = current.indexOf('.')
             if (dotIndex == -1 || dotIndex == current.length - 1) break
             current = current.substring(dotIndex + 1)
+            // Safety guard: Never match bare TLDs (e.g. "com", "org", "net") as wildcard domains
+            if (!current.contains('.')) break
             map[current]?.let { return it }
         }
         return null

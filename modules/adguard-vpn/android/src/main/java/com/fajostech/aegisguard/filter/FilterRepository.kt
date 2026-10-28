@@ -88,8 +88,7 @@ class FilterRepository(private val context: Context) {
         var count = 0
         try {
             file.forEachLine { line ->
-                val trimmed = line.trim()
-                if (trimmed.isNotEmpty() && !trimmed.startsWith("!") && !trimmed.startsWith("#")) {
+                if (AdBlockRule.parse(line) != null) {
                     count++
                 }
             }

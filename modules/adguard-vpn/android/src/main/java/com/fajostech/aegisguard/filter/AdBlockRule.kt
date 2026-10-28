@@ -34,6 +34,12 @@ data class AdBlockRule(
                 return null // Comment or empty
             }
 
+            // Exclude browser cosmetic, scriptlet, and element hiding rules
+            if (trimmed.contains("##") || trimmed.contains("#@#") || trimmed.contains("#$#") ||
+                trimmed.contains("#%#") || trimmed.contains("#?#")) {
+                return null
+            }
+
             var working = trimmed
             var isImportant = false
             var isBadFilter = false
@@ -60,8 +66,19 @@ data class AdBlockRule(
                                 dnsRewriteIp = rewriteTarget
                             }
                         }
+                        // Reject browser-only scoped modifiers that must never be applied to DNS
+                        m.startsWith("domain=") || m.startsWith("cookie=") || m.startsWith("redirect=") ||
+                        m.startsWith("header=") || m.startsWith("csp=") || m.startsWith("replace=") ||
+                        m.startsWith("app=") || m.startsWith("denyallow=") -> {
+                            return null
+                        }
                     }
                 }
+            }
+
+            // DNS rules cannot contain URL paths, query parameters, backslashes, or assignment
+            if (working.contains('/') || working.contains('?') || working.contains('\\') || working.contains('=')) {
+                return null
             }
 
             // Regex syntax: /pattern/
@@ -109,7 +126,7 @@ data class AdBlockRule(
                 )
             }
 
-            // Adblock syntax: ||example.com^
+            // Adblock domain block syntax: ||example.com^
             if (working.startsWith("||")) {
                 var content = working.substring(2)
                 if (content.endsWith("^")) {
@@ -165,8 +182,21 @@ data class AdBlockRule(
         }
 
         private fun sanitizeDomain(raw: String): String? {
-            val domain = raw.trim().lowercase().removePrefix("http://").removePrefix("https://").split("/")[0].split(":")[0]
-            return if (domain.contains(".") && !domain.contains(" ")) domain else null
+            val d = raw.trim().lowercase()
+                .removePrefix("http://")
+                .removePrefix("https://")
+                .removeSuffix("^")
+                .trim()
+
+            if (d.isEmpty() || d.contains('/') || d.contains('?') || d.contains('\\') ||
+                d.contains(' ') || d.contains('*') || d.contains(':') || d.contains('#')) {
+                return null
+            }
+            if (d.startsWith('.') || d.endsWith('.')) return null
+            val parts = d.split('.')
+            // Must have at least two labels (e.g. "domain.com"), never bare TLD like "com"
+            if (parts.size < 2 || parts.any { it.isEmpty() }) return null
+            return d
         }
     }
 }
