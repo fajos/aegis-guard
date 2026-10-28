@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">Aegis Guard</string>
+    <string name="vpn_service_desc">Aegis Guard local VPN for DNS ad-blocking and privacy protection</string>
+    <string name="start_vpn">Enable Protection</string>
+    <string name="stop_vpn">Disable Protection</string>
+    <string name="status_running">Protection is Active</string>
+    <string name="status_stopped">Protection is Disabled</string>
+    <string name="queries_blocked">Queries Blocked</string>
+    <string name="queries_total">Total Queries</string>
+    <string name="filter_rules_count">Active Rules</string>
+</resources>

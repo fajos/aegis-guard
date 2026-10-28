@@ -1,0 +1,7 @@
+{
+  "name": "adguard-vpn",
+  "version": "1.0.0",
+  "description": "AdGuard Local VPN & DNS filtering Expo module",
+  "main": "index.ts",
+  "types": "index.ts"
+}

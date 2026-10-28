@@ -1,0 +1,151 @@
+let withAndroidManifest, withEntitlementsPlist, createRunOncePlugin;
+
+try {
+  const plugins = require('@expo/config-plugins');
+  withAndroidManifest = plugins.withAndroidManifest;
+  withEntitlementsPlist = plugins.withEntitlementsPlist;
+  createRunOncePlugin = plugins.createRunOncePlugin;
+} catch (e) {
+  // Fallback when @expo/config-plugins is not yet installed in node_modules
+  createRunOncePlugin = (fn) => fn;
+}
+
+/**
+ * Expo Config Plugin for AdGuard Local VPN & NetworkExtension.
+ *
+ * Configures AndroidManifest.xml with LocalVpnService (android.net.VpnService),
+ * Quick Settings Tile, Watchdog Service, Boot Receiver, and special-use FGS permissions.
+ * Configures iOS entitlements with NetworkExtension packet-tunnel and App Groups.
+ */
+function withAdguardAndroid(config) {
+  if (!withAndroidManifest) return config;
+  return withAndroidManifest(config, (config) => {
+    const androidManifest = config.modResults.manifest;
+
+    // 1. Ensure permissions
+    const permissions = [
+      'android.permission.INTERNET',
+      'android.permission.ACCESS_NETWORK_STATE',
+      'android.permission.ACCESS_WIFI_STATE',
+      'android.permission.FOREGROUND_SERVICE',
+      'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
+      'android.permission.POST_NOTIFICATIONS',
+      'android.permission.RECEIVE_BOOT_COMPLETED',
+      'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+      'android.permission.QUERY_ALL_PACKAGES',
+    ];
+
+    if (!androidManifest['uses-permission']) {
+      androidManifest['uses-permission'] = [];
+    }
+
+    permissions.forEach((perm) => {
+      if (!androidManifest['uses-permission'].some((p) => p.$['android:name'] === perm)) {
+        androidManifest['uses-permission'].push({
+          $: { 'android:name': perm },
+        });
+      }
+    });
+
+    // 2. Configure Application Services
+    const app = androidManifest.application[0];
+    if (!app.service) app.service = [];
+    if (!app.receiver) app.receiver = [];
+
+    // Local VPN Service
+    const vpnServiceName = 'com.fajostech.aegisguard.vpn.LocalVpnService';
+    if (!app.service.some((s) => s.$['android:name'] === vpnServiceName)) {
+      app.service.push({
+        $: {
+          'android:name': vpnServiceName,
+          'android:description': '@string/vpn_service_desc',
+          'android:exported': 'false',
+          'android:foregroundServiceType': 'specialUse',
+          'android:permission': 'android.permission.BIND_VPN_SERVICE',
+        },
+        'intent-filter': [
+          {
+            action: [{ $: { 'android:name': 'android.net.VpnService' } }],
+          },
+        ],
+        property: [
+          {
+            $: {
+              'android:name': 'android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE',
+              'android:value': 'Local VPN for DNS content filtering and privacy protection',
+            },
+          },
+        ],
+      });
+    }
+
+    // Watchdog Service
+    const watchdogName = 'com.fajostech.aegisguard.vpn.WatchdogService';
+    if (!app.service.some((s) => s.$['android:name'] === watchdogName)) {
+      app.service.push({
+        $: {
+          'android:name': watchdogName,
+          'android:exported': 'false',
+        },
+      });
+    }
+
+    // Quick Settings Tile
+    const tileServiceName = 'com.fajostech.aegisguard.vpn.AdguardTileService';
+    if (!app.service.some((s) => s.$['android:name'] === tileServiceName)) {
+      app.service.push({
+        $: {
+          'android:name': tileServiceName,
+          'android:icon': '@android:drawable/ic_lock_lock',
+          'android:label': 'Aegis Guard',
+          'android:permission': 'android.permission.BIND_QUICK_SETTINGS_TILE',
+          'android:exported': 'true',
+        },
+        'intent-filter': [
+          {
+            action: [{ $: { 'android:name': 'android.service.quicksettings.action.QS_TILE' } }],
+          },
+        ],
+      });
+    }
+
+    // Boot Receiver
+    const bootReceiverName = 'com.fajostech.aegisguard.vpn.BootUpReceiver';
+    if (!app.receiver.some((r) => r.$['android:name'] === bootReceiverName)) {
+      app.receiver.push({
+        $: {
+          'android:name': bootReceiverName,
+          'android:enabled': 'true',
+          'android:exported': 'true',
+        },
+        'intent-filter': [
+          {
+            action: [
+              { $: { 'android:name': 'android.intent.action.BOOT_COMPLETED' } },
+              { $: { 'android:name': 'android.intent.action.QUICKBOOT_POWERON' } },
+            ],
+          },
+        ],
+      });
+    }
+
+    return config;
+  });
+}
+
+function withAdguardIos(config) {
+  if (!withEntitlementsPlist) return config;
+  return withEntitlementsPlist(config, (config) => {
+    config.modResults['com.apple.developer.networking.networkextension'] = ['packet-tunnel'];
+    config.modResults['com.apple.security.application-groups'] = ['group.com.fajostech.aegisguard'];
+    return config;
+  });
+}
+
+function withAdguardVpn(config) {
+  config = withAdguardAndroid(config);
+  config = withAdguardIos(config);
+  return config;
+}
+
+module.exports = createRunOncePlugin(withAdguardVpn, 'withAdguardVpn', '1.0.0');

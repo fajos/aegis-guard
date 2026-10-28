@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "Aegis Guard",
+    "slug": "aegis-guard",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#10B981"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.fajostech.aegisguard",
+      "entitlements": {
+        "com.apple.developer.networking.networkextension": [
+          "packet-tunnel"
+        ],
+        "com.apple.security.application-groups": [
+          "group.com.fajostech.aegisguard"
+        ]
+      },
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "network-authentication",
+          "fetch"
+        ]
+      }
+    },
+    "android": {
+      "package": "com.fajostech.aegisguard",
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "ACCESS_WIFI_STATE",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_SPECIAL_USE",
+        "POST_NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED",
+        "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+        "QUERY_ALL_PACKAGES"
+      ]
+    },
+    "plugins": [
+      "./plugins/withAdguardVpn"
+    ]
+  }
+}
