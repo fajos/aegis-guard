@@ -15,15 +15,13 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import com.fajostech.aegisguard.AdguardApplication
-import com.fajostech.aegisguard.R
+import com.fajostech.aegisguard.appmanagement.AppManager
 import com.fajostech.aegisguard.filter.DnsFilterEngine
 import com.fajostech.aegisguard.stats.StatisticsManager
-import com.fajostech.aegisguard.ui.MainActivity
 import java.io.IOException
 
 /**
- * Android VPN Service mirroring AdGuard's com.adguard.android.service.vpn.LocalVpnService.
+ * Android VPN Service mirroring Aegis Guard's LocalVpnService.
  * Intercepts local device DNS traffic without requiring root.
  */
 class LocalVpnService : VpnService() {
@@ -82,7 +80,7 @@ class LocalVpnService : VpnService() {
             val builder = Builder()
 
             // 1. Session Name
-            builder.setSession("AdGuard Protection")
+            builder.setSession("Aegis Guard Protection")
 
             // 2. MTU
             builder.setMtu(currentConfig.mtu)
@@ -90,7 +88,7 @@ class LocalVpnService : VpnService() {
             // 3. Virtual IP Address
             builder.addAddress(currentConfig.virtualIp, currentConfig.virtualPrefixLength)
 
-            // 4. Virtual DNS Server (198.18.53.53 matching AdGuard)
+            // 4. Virtual DNS Server (198.18.53.53 matching Aegis Guard)
             builder.addDnsServer(currentConfig.virtualDnsServer)
 
             // 5. Route DNS traffic to TUN
@@ -99,18 +97,13 @@ class LocalVpnService : VpnService() {
             // 6. Split Tunneling: Exclude this app & user bypassed apps
             try {
                 builder.addDisallowedApplication(packageName)
-                if (::connectivityManager.isInitialized) {
-                    val bypassed = try {
-                        AdguardApplication.instance.appManager.getBypassedPackages()
+                val appManager = AppManager(this)
+                val bypassed = appManager.getBypassedPackages()
+                for (app in bypassed) {
+                    try {
+                        builder.addDisallowedApplication(app)
                     } catch (e: Exception) {
-                        emptySet()
-                    }
-                    for (app in bypassed) {
-                        try {
-                            builder.addDisallowedApplication(app)
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Failed to exclude app: $app", e)
-                        }
+                        Log.w(TAG, "Failed to exclude app: $app", e)
                     }
                 }
             } catch (e: Exception) {
@@ -118,12 +111,14 @@ class LocalVpnService : VpnService() {
             }
 
             // 7. Configure PendingIntent for notification click
-            val configureIntent = Intent(this, MainActivity::class.java)
-            val pendingIntent = PendingIntent.getActivity(
-                this, 0, configureIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            builder.setConfigureIntent(pendingIntent)
+            val configureIntent = packageManager.getLaunchIntentForPackage(packageName)
+            if (configureIntent != null) {
+                val pendingIntent = PendingIntent.getActivity(
+                    this, 0, configureIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                builder.setConfigureIntent(pendingIntent)
+            }
 
             // 8. Establish TUN interface
             val pfd = builder.establish()
@@ -151,7 +146,7 @@ class LocalVpnService : VpnService() {
             }
 
             isServiceRunning = true
-            Log.i(TAG, "AdGuard VPN service successfully established and active")
+            Log.i(TAG, "Aegis Guard VPN service successfully established and active")
 
             // Start Watchdog service
             try {
@@ -231,10 +226,10 @@ class LocalVpnService : VpnService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 NOTIFICATION_CHANNEL_ID,
-                "AdGuard Protection Service",
+                "Aegis Guard Protection Service",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Shows status of AdGuard DNS protection"
+                description = "Shows status of Aegis Guard DNS protection"
             }
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(channel)
@@ -242,11 +237,13 @@ class LocalVpnService : VpnService() {
     }
 
     private fun createNotification(): Notification {
-        val intent = Intent(this, MainActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(
-            this, 0, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+        val pendingIntent = if (launchIntent != null) {
+            PendingIntent.getActivity(
+                this, 0, launchIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        } else null
 
         val stopIntent = Intent(this, LocalVpnService::class.java).apply {
             action = ACTION_STOP
@@ -259,13 +256,17 @@ class LocalVpnService : VpnService() {
         val blocked = filterEngine.blockedQueries.get()
         val kbSaved = StatisticsManager.getEstimatedDataSavedBytes() / 1024
 
-        return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("AdGuard Protection Active")
+        val builder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+            .setContentTitle("Aegis Guard Protection Active")
             .setContentText("$blocked ads blocked • ~${kbSaved} KB data saved")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentIntent(pendingIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Pause", stopPendingIntent)
             .setOngoing(true)
-            .build()
+
+        if (pendingIntent != null) {
+            builder.setContentIntent(pendingIntent)
+        }
+
+        return builder.build()
     }
 }
