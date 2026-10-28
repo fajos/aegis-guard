@@ -38,16 +38,24 @@ Thumbs.db
 *.sublime-workspace
 
 # Android
-/android
 .gradle/
 build/
 app/build/
+android/.gradle/
+android/app/build/
+android/app/debug.keystore
 local.properties
+android/local.properties
 *.apk
 *.aab
 
 # iOS
-/ios
+ios/Pods/
+ios/build/
+ios/*.xcworkspace
+ios/*.xcodeproj/project.xcworkspace
+ios/*.xcodeproj/xcuserdata/
+ios/DerivedData/
 *.ipa
 *.dSYM
 *.dSYM.zip
