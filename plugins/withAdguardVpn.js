@@ -1,9 +1,10 @@
-let withAndroidManifest, withEntitlementsPlist, createRunOncePlugin;
+let withAndroidManifest, withEntitlementsPlist, withStringsXml, createRunOncePlugin;
 
 try {
   const plugins = require('expo/config-plugins');
   withAndroidManifest = plugins.withAndroidManifest;
   withEntitlementsPlist = plugins.withEntitlementsPlist;
+  withStringsXml = plugins.withStringsXml;
   createRunOncePlugin = plugins.createRunOncePlugin;
 } catch (e) {
   // Fallback when @expo/config-plugins is not yet installed in node_modules
@@ -133,6 +134,21 @@ function withAdguardAndroid(config) {
   });
 }
 
+function withAdguardStrings(config) {
+  if (!withStringsXml) return config;
+  return withStringsXml(config, (config) => {
+    const strings = config.modResults.resources.string || [];
+    if (!strings.some((s) => s.$.name === 'vpn_service_desc')) {
+      strings.push({
+        $: { name: 'vpn_service_desc' },
+        _: 'Aegis Guard Local VPN for DNS content filtering and privacy protection',
+      });
+    }
+    config.modResults.resources.string = strings;
+    return config;
+  });
+}
+
 function withAdguardIos(config) {
   if (!withEntitlementsPlist) return config;
   return withEntitlementsPlist(config, (config) => {
@@ -144,6 +160,7 @@ function withAdguardIos(config) {
 
 function withAdguardVpn(config) {
   config = withAdguardAndroid(config);
+  config = withAdguardStrings(config);
   config = withAdguardIos(config);
   return config;
 }

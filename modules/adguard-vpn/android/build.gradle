@@ -2,12 +2,12 @@ apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 
 android {
-    namespace "com.fajostech.aegisguard"
-    compileSdkVersion 34
+    namespace "com.fajostech.aegisguard.vpn"
+    compileSdkVersion rootProject.hasProperty("compileSdkVersion") ? rootProject.compileSdkVersion : 34
 
     defaultConfig {
-        minSdkVersion 26
-        targetSdkVersion 34
+        minSdkVersion rootProject.hasProperty("minSdkVersion") ? rootProject.minSdkVersion : 24
+        targetSdkVersion rootProject.hasProperty("targetSdkVersion") ? rootProject.targetSdkVersion : 34
     }
 
     lintOptions {
