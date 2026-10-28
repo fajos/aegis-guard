@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Alert } from 'react-native';
 import {
   AdGuardVpn,
   vpnEventEmitter,
@@ -31,7 +32,13 @@ export function useAdGuardVpn() {
 
   const toggleVpn = useCallback(async () => {
     try {
-      if (!AdGuardVpn) return;
+      if (!AdGuardVpn) {
+        Alert.alert(
+          'Native Build Required',
+          'Local VPN requires native interceptors. Please launch the custom development build or APK generated via "eas build" or "npx expo run:android" (Expo Go does not support custom VpnServices).'
+        );
+        return;
+      }
       if (isRunning) {
         await AdGuardVpn.stopVpn();
         setIsRunning(false);
@@ -40,8 +47,9 @@ export function useAdGuardVpn() {
         setIsRunning(true);
       }
       refreshState();
-    } catch (e) {
+    } catch (e: any) {
       console.error('[useAdGuardVpn] toggle error:', e);
+      Alert.alert('VPN Error', e.message || 'Failed to toggle VPN protection');
     }
   }, [isRunning, refreshState]);
 
@@ -73,12 +81,14 @@ export function useAdGuardVpn() {
 
     let subscription: any = null;
     try {
-      subscription = vpnEventEmitter.addListener(
-        'onQueryLogged',
-        (log: QueryLogRecord) => {
-          setRecentLogs((prev) => [log, ...prev.slice(0, 49)]);
-        }
-      );
+      if (vpnEventEmitter && typeof vpnEventEmitter.addListener === 'function') {
+        subscription = vpnEventEmitter.addListener(
+          'onQueryLogged',
+          (log: QueryLogRecord) => {
+            setRecentLogs((prev) => [log, ...prev.slice(0, 49)]);
+          }
+        );
+      }
     } catch (e) {
       // EventEmitter listener registration safe guard
     }

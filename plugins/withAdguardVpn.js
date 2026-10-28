@@ -1,4 +1,4 @@
-let withAndroidManifest, withEntitlementsPlist, withStringsXml, withGradleProperties, createRunOncePlugin;
+let withAndroidManifest, withEntitlementsPlist, withStringsXml, withGradleProperties, withMainApplication, withAppBuildGradle, createRunOncePlugin;
 
 try {
   const plugins = require('expo/config-plugins');
@@ -6,6 +6,8 @@ try {
   withEntitlementsPlist = plugins.withEntitlementsPlist;
   withStringsXml = plugins.withStringsXml;
   withGradleProperties = plugins.withGradleProperties;
+  withMainApplication = plugins.withMainApplication;
+  withAppBuildGradle = plugins.withAppBuildGradle;
   createRunOncePlugin = plugins.createRunOncePlugin;
 } catch (e) {
   // Fallback when @expo/config-plugins is not yet installed in node_modules
@@ -19,6 +21,7 @@ try {
  * Quick Settings Tile, Watchdog Service, Boot Receiver, and special-use FGS permissions.
  * Configures iOS entitlements with NetworkExtension packet-tunnel and App Groups.
  * Injects packaging options into gradle.properties to resolve multi-release JAR META-INF collisions.
+ * Injects AdGuardVpnPackage registration into MainApplication.kt and app/build.gradle.
  */
 function withAdguardAndroid(config) {
   if (!withAndroidManifest) return config;
@@ -178,6 +181,42 @@ function withAdguardPackagingProperties(config) {
   });
 }
 
+function withAdguardMainApplication(config) {
+  if (!withMainApplication) return config;
+  return withMainApplication(config, (config) => {
+    let contents = config.modResults.contents;
+    if (!contents.includes('import com.fajostech.aegisguard.bridge.AdGuardVpnPackage')) {
+      contents = contents.replace(
+        /(package [^\n]+)/,
+        `$1\n\nimport com.fajostech.aegisguard.bridge.AdGuardVpnPackage`
+      );
+    }
+    if (!contents.includes('add(AdGuardVpnPackage())')) {
+      contents = contents.replace(
+        /PackageList\(this\)\.packages\.apply\s*\{([\s\S]*?)\}/,
+        `PackageList(this).packages.apply {\n              add(AdGuardVpnPackage())\n            }`
+      );
+    }
+    config.modResults.contents = contents;
+    return config;
+  });
+}
+
+function withAdguardAppBuildGradle(config) {
+  if (!withAppBuildGradle) return config;
+  return withAppBuildGradle(config, (config) => {
+    let contents = config.modResults.contents;
+    if (!contents.includes("project(':adguard-vpn')")) {
+      contents = contents.replace(
+        /dependencies\s*\{/,
+        `dependencies {\n    implementation project(':adguard-vpn')`
+      );
+    }
+    config.modResults.contents = contents;
+    return config;
+  });
+}
+
 function withAdguardIos(config) {
   if (!withEntitlementsPlist) return config;
   return withEntitlementsPlist(config, (config) => {
@@ -191,6 +230,8 @@ function withAdguardVpn(config) {
   config = withAdguardAndroid(config);
   config = withAdguardStrings(config);
   config = withAdguardPackagingProperties(config);
+  config = withAdguardMainApplication(config);
+  config = withAdguardAppBuildGradle(config);
   config = withAdguardIos(config);
   return config;
 }

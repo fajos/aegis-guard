@@ -67,9 +67,17 @@ const { AdGuardVpnModule } = NativeModules;
 if (!AdGuardVpnModule) {
   console.warn(
     `[AdGuardVpnModule] Native module is not linked on platform: ${Platform.OS}. ` +
-    'Run "npx expo run:android" or "npx expo run:ios" to compile native VPN services.'
+    'Run "npx expo run:android" or "eas build" to compile native VPN services. ' +
+    'Note: Standard Expo Go does not include custom native VpnServices.'
   );
 }
 
 export const AdGuardVpn = AdGuardVpnModule as AdGuardVpnInterface;
-export const vpnEventEmitter = new NativeEventEmitter(AdGuardVpnModule);
+
+export const vpnEventEmitter: NativeEventEmitter = AdGuardVpnModule
+  ? new NativeEventEmitter(AdGuardVpnModule)
+  : ({
+      addListener: () => ({ remove: () => {} }),
+      removeListener: () => {},
+      removeAllListeners: () => {},
+    } as unknown as NativeEventEmitter);
