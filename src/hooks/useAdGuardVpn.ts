@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Alert } from 'react-native';
 import {
   AdGuardVpn,
@@ -17,10 +17,13 @@ let cachedStats: VpnStatistics = {
 };
 let cachedRecentLogs: QueryLogRecord[] = [];
 
-export function useAdGuardVpn() {
+export function useAdGuardVpn(isActive: boolean = true) {
   const [isRunning, setIsRunning] = useState<boolean>(cachedIsRunning);
   const [stats, setStats] = useState<VpnStatistics>(cachedStats);
   const [recentLogs, setRecentLogs] = useState<QueryLogRecord[]>(cachedRecentLogs);
+
+  const pendingBatchRef = useRef<QueryLogRecord[]>([]);
+  const flushTimerRef = useRef<any>(null);
 
   const refreshState = useCallback(async () => {
     try {
@@ -79,6 +82,7 @@ export function useAdGuardVpn() {
     try {
       if (!AdGuardVpn) return;
       await AdGuardVpn.clearQueryLogs();
+      cachedRecentLogs = [];
       setRecentLogs([]);
     } catch (e) {
       console.error('[useAdGuardVpn] clear logs error:', e);
@@ -86,31 +90,68 @@ export function useAdGuardVpn() {
   }, []);
 
   useEffect(() => {
-    refreshState();
-    const interval = setInterval(refreshState, 3000);
+    if (!isActive) return;
 
-    let subscription: any = null;
+    refreshState();
+    const interval = setInterval(refreshState, 4000);
+
+    const scheduleFlush = () => {
+      if (flushTimerRef.current) return;
+      flushTimerRef.current = setTimeout(() => {
+        flushTimerRef.current = null;
+        const pending = pendingBatchRef.current.splice(0);
+        if (pending.length > 0) {
+          cachedRecentLogs = [...pending, ...cachedRecentLogs].slice(0, 15);
+          setRecentLogs(cachedRecentLogs);
+        }
+      }, 1000);
+    };
+
+    let subBatch: any = null;
+    let subSingle: any = null;
+
     try {
       if (vpnEventEmitter && typeof vpnEventEmitter.addListener === 'function') {
-        subscription = vpnEventEmitter.addListener(
+        // Preferred: batched array event
+        subBatch = vpnEventEmitter.addListener(
+          'onQueriesLogged',
+          (entries: QueryLogRecord[]) => {
+            if (Array.isArray(entries) && entries.length > 0) {
+              pendingBatchRef.current.unshift(...entries);
+              scheduleFlush();
+            }
+          }
+        );
+
+        // Fallback: single item event
+        subSingle = vpnEventEmitter.addListener(
           'onQueryLogged',
           (log: QueryLogRecord) => {
-            cachedRecentLogs = [log, ...cachedRecentLogs.slice(0, 49)];
-            setRecentLogs(cachedRecentLogs);
+            if (log) {
+              pendingBatchRef.current.unshift(log);
+              scheduleFlush();
+            }
           }
         );
       }
     } catch (e) {
-      // EventEmitter listener registration safe guard
+      // EventEmitter listener registration safeguard
     }
 
     return () => {
       clearInterval(interval);
-      if (subscription && typeof subscription.remove === 'function') {
-        subscription.remove();
+      if (flushTimerRef.current) {
+        clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+      if (subBatch && typeof subBatch.remove === 'function') {
+        subBatch.remove();
+      }
+      if (subSingle && typeof subSingle.remove === 'function') {
+        subSingle.remove();
       }
     };
-  }, [refreshState]);
+  }, [isActive, refreshState]);
 
   return {
     isRunning,

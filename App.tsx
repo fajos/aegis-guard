@@ -45,10 +45,10 @@ function MainNavigator(): React.JSX.Element {
       {/* Screen Body - Persistent Screen Instances across Tabs */}
       <View style={styles.screenContainer}>
         <View style={[styles.screenWrapper, activeTab !== 'dashboard' && styles.hidden]}>
-          <DashboardScreen />
+          <DashboardScreen isActive={activeTab === 'dashboard'} />
         </View>
         <View style={[styles.screenWrapper, activeTab !== 'queryLog' && styles.hidden]}>
-          <QueryLogScreen />
+          <QueryLogScreen isActive={activeTab === 'queryLog'} />
         </View>
         <View style={[styles.screenWrapper, activeTab !== 'filters' && styles.hidden]}>
           <FiltersScreen />

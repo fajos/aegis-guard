@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,51 +8,161 @@ import {
   Modal,
   StyleSheet,
   Alert,
+  Platform,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AdGuardVpn, vpnEventEmitter, QueryLogRecord } from '../native/AdGuardVpnModule';
 
 type FilterTab = 'ALL' | 'BLOCKED' | 'ALLOWED';
 
-export const QueryLogScreen: React.FC = () => {
+interface QueryLogScreenProps {
+  isActive?: boolean;
+}
+
+const QueryLogCard = React.memo(
+  ({
+    item,
+    onPress,
+  }: {
+    item: QueryLogRecord;
+    onPress: (item: QueryLogRecord) => void;
+  }) => {
+    return (
+      <TouchableOpacity
+        style={styles.card}
+        activeOpacity={0.7}
+        onPress={() => onPress(item)}
+      >
+        <View style={styles.cardHeader}>
+          <View
+            style={[
+              styles.badge,
+              { backgroundColor: item.isBlocked ? '#FEE2E2' : '#D1FAE5' },
+            ]}
+          >
+            <Text
+              style={[
+                styles.badgeText,
+                { color: item.isBlocked ? '#DC2626' : '#059669' },
+              ]}
+            >
+              {item.isBlocked ? 'BLOCKED' : 'ALLOWED'}
+            </Text>
+          </View>
+          <Text style={styles.qtypeBadge}>{item.queryType || 'A'}</Text>
+          <Text style={styles.timestampText}>
+            {new Date(item.timestamp || Date.now()).toLocaleTimeString()}
+          </Text>
+        </View>
+
+        <Text style={styles.domainText} numberOfLines={1}>
+          {item.domain}
+        </Text>
+
+        <View style={styles.cardFooter}>
+          <Text style={styles.footerDetail}>
+            {item.matchedRule ? `Rule: ${item.matchedRule}` : `DNS: ${item.upstream || 'Upstream'}`}
+          </Text>
+          <Text style={styles.durationText}>{(item.durationMs || 0).toFixed(1)} ms</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  }
+);
+
+export const QueryLogScreen: React.FC<QueryLogScreenProps> = ({ isActive = true }) => {
   const [logs, setLogs] = useState<QueryLogRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<FilterTab>('ALL');
   const [selectedEntry, setSelectedEntry] = useState<QueryLogRecord | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const fetchLogs = async () => {
+  const pendingBatchRef = useRef<QueryLogRecord[]>([]);
+  const flushTimerRef = useRef<any>(null);
+  const isActiveRef = useRef(isActive);
+  isActiveRef.current = isActive;
+
+  const fetchLogs = useCallback(async () => {
     try {
       if (!AdGuardVpn) return;
       const data = await AdGuardVpn.getQueryLogs();
       setLogs(data || []);
     } catch (e) {
-      console.error(e);
+      console.error('[QueryLogScreen] fetchLogs error:', e);
     }
+  }, []);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await fetchLogs();
+    setIsRefreshing(false);
   };
 
+  // Immediate sync when tab becomes active
   useEffect(() => {
-    fetchLogs();
-    const interval = setInterval(fetchLogs, 2500);
+    if (isActive) {
+      fetchLogs();
+    }
+  }, [isActive, fetchLogs]);
 
-    let subscription: any = null;
+  // Throttled UI updater: merges batched items and limits React re-renders to at most ~2x per sec
+  const scheduleFlush = useCallback(() => {
+    if (flushTimerRef.current) return;
+    flushTimerRef.current = setTimeout(() => {
+      flushTimerRef.current = null;
+      if (!isActiveRef.current) return;
+
+      const pending = pendingBatchRef.current.splice(0);
+      if (pending.length === 0) return;
+
+      setLogs((prev) => [...pending, ...prev].slice(0, 200));
+    }, 400);
+  }, []);
+
+  useEffect(() => {
+    let subBatch: any = null;
+    let subSingle: any = null;
+
     try {
       if (vpnEventEmitter && typeof vpnEventEmitter.addListener === 'function') {
-        subscription = vpnEventEmitter.addListener(
+        // Preferred high-performance batched event
+        subBatch = vpnEventEmitter.addListener(
+          'onQueriesLogged',
+          (entries: QueryLogRecord[]) => {
+            if (Array.isArray(entries) && entries.length > 0) {
+              pendingBatchRef.current.unshift(...entries);
+              scheduleFlush();
+            }
+          }
+        );
+
+        // Fallback single-item event
+        subSingle = vpnEventEmitter.addListener(
           'onQueryLogged',
           (newEntry: QueryLogRecord) => {
-            setLogs((prev) => [newEntry, ...prev.slice(0, 199)]);
+            if (newEntry) {
+              pendingBatchRef.current.unshift(newEntry);
+              scheduleFlush();
+            }
           }
         );
       }
     } catch (e) {}
 
     return () => {
-      clearInterval(interval);
-      if (subscription && typeof subscription.remove === 'function') {
-        subscription.remove();
+      if (flushTimerRef.current) {
+        clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+      if (subBatch && typeof subBatch.remove === 'function') {
+        subBatch.remove();
+      }
+      if (subSingle && typeof subSingle.remove === 'function') {
+        subSingle.remove();
       }
     };
-  }, []);
+  }, [scheduleFlush]);
 
   const handleClear = async () => {
     Alert.alert(
@@ -65,6 +175,7 @@ export const QueryLogScreen: React.FC = () => {
           style: 'destructive',
           onPress: async () => {
             await AdGuardVpn.clearQueryLogs();
+            pendingBatchRef.current = [];
             setLogs([]);
           },
         },
@@ -110,6 +221,13 @@ export const QueryLogScreen: React.FC = () => {
     });
   }, [logs, searchQuery, activeTab]);
 
+  const renderItem = useCallback(
+    ({ item }: { item: QueryLogRecord }) => (
+      <QueryLogCard item={item} onPress={setSelectedEntry} />
+    ),
+    []
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Search and Action Bar */}
@@ -151,52 +269,24 @@ export const QueryLogScreen: React.FC = () => {
       {/* Log List */}
       <FlatList
         data={filteredLogs}
-        keyExtractor={(item, index) => `${item.domain}-${item.timestamp}-${index}`}
+        keyExtractor={(item, index) => `${item.timestamp}-${item.domain}-${index}`}
+        renderItem={renderItem}
+        maxToRenderPerBatch={10}
+        windowSize={7}
+        initialNumToRender={12}
+        removeClippedSubviews={Platform.OS === 'android'}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            colors={['#10B981']}
+          />
+        }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>No requests match the current filter.</Text>
           </View>
         }
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.card}
-            activeOpacity={0.7}
-            onPress={() => setSelectedEntry(item)}
-          >
-            <View style={styles.cardHeader}>
-              <View
-                style={[
-                  styles.badge,
-                  { backgroundColor: item.isBlocked ? '#FEE2E2' : '#D1FAE5' },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.badgeText,
-                    { color: item.isBlocked ? '#DC2626' : '#059669' },
-                  ]}
-                >
-                  {item.isBlocked ? 'BLOCKED' : 'ALLOWED'}
-                </Text>
-              </View>
-              <Text style={styles.qtypeBadge}>{item.queryType || 'A'}</Text>
-              <Text style={styles.timestampText}>
-                {new Date(item.timestamp || Date.now()).toLocaleTimeString()}
-              </Text>
-            </View>
-
-            <Text style={styles.domainText} numberOfLines={1}>
-              {item.domain}
-            </Text>
-
-            <View style={styles.cardFooter}>
-              <Text style={styles.footerDetail}>
-                {item.matchedRule ? `Rule: ${item.matchedRule}` : `DNS: ${item.upstream || 'Upstream'}`}
-              </Text>
-              <Text style={styles.durationText}>{(item.durationMs || 0).toFixed(1)} ms</Text>
-            </View>
-          </TouchableOpacity>
-        )}
       />
 
       {/* Detail / 1-Tap Action Modal */}

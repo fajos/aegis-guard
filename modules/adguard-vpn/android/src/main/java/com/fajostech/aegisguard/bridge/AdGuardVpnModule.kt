@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.VpnService
+import android.os.Handler
+import android.os.Looper
 import com.fajostech.aegisguard.appmanagement.AppManager
 import com.fajostech.aegisguard.filter.AdBlockRule
 import com.fajostech.aegisguard.filter.BlockingMode
@@ -16,6 +18,8 @@ import com.facebook.react.modules.core.DeviceEventManagerModule
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * React Native Bridge Module providing complete Aegis Guard DNS filtering,
@@ -35,6 +39,15 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
     private val filterRepository by lazy { FilterRepository(reactContext) }
     private val appManager by lazy { AppManager(reactContext) }
     private val dnsPrefs by lazy { reactContext.getSharedPreferences("adguard_dns_prefs", Context.MODE_PRIVATE) }
+
+    private val pendingLogQueue = ConcurrentLinkedQueue<com.fajostech.aegisguard.log.QueryLogEntry>()
+    private val isFlushScheduled = AtomicBoolean(false)
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private val flushBatchRunnable = Runnable {
+        isFlushScheduled.set(false)
+        flushLogBatch()
+    }
 
     init {
         reactContext.addActivityEventListener(this)
@@ -60,9 +73,46 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
             }
         } catch (e: Exception) {}
 
-        // Stream live DNS queries to React Native JS listeners
+        // Buffer and batch query logs to prevent flooding the React Native bridge
         FilteringLog.addListener { entry ->
-            val params = Arguments.createMap().apply {
+            enqueueLogEntry(entry)
+        }
+    }
+
+    private fun enqueueLogEntry(entry: com.fajostech.aegisguard.log.QueryLogEntry) {
+        // Prevent unbounded memory growth if JS is suspended or bridge is busy
+        if (pendingLogQueue.size > 250) {
+            pendingLogQueue.poll()
+        }
+        pendingLogQueue.offer(entry)
+
+        // Flush immediately if batch has reached 20 items, or throttle to 250ms
+        if (pendingLogQueue.size >= 20) {
+            mainHandler.removeCallbacks(flushBatchRunnable)
+            isFlushScheduled.set(false)
+            flushLogBatch()
+        } else if (!isFlushScheduled.getAndSet(true)) {
+            mainHandler.postDelayed(flushBatchRunnable, 250)
+        }
+    }
+
+    private fun flushLogBatch() {
+        if (!reactContext.hasActiveReactInstance()) {
+            pendingLogQueue.clear()
+            return
+        }
+
+        val batch = mutableListOf<com.fajostech.aegisguard.log.QueryLogEntry>()
+        while (batch.size < 50 && !pendingLogQueue.isEmpty()) {
+            val item = pendingLogQueue.poll() ?: break
+            batch.add(item)
+        }
+
+        if (batch.isEmpty()) return
+
+        val batchArray = Arguments.createArray()
+        for (entry in batch) {
+            val map = Arguments.createMap().apply {
                 putString("domain", entry.domain)
                 putString("queryType", entry.queryType)
                 putBoolean("isBlocked", entry.isBlocked)
@@ -71,7 +121,16 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
                 putString("upstream", entry.upstream)
                 putDouble("timestamp", entry.timestamp.toDouble())
             }
-            sendEvent("onQueryLogged", params)
+            batchArray.pushMap(map)
+        }
+
+        sendArrayEvent("onQueriesLogged", batchArray)
+
+        // If items are still queued up during heavy traffic bursts, schedule next batch promptly
+        if (!pendingLogQueue.isEmpty()) {
+            if (!isFlushScheduled.getAndSet(true)) {
+                mainHandler.postDelayed(flushBatchRunnable, 100)
+            }
         }
     }
 
@@ -311,6 +370,14 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
     }
 
     private fun sendEvent(eventName: String, params: WritableMap) {
+        if (reactContext.hasActiveReactInstance()) {
+            reactContext
+                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit(eventName, params)
+        }
+    }
+
+    private fun sendArrayEvent(eventName: String, params: WritableArray) {
         if (reactContext.hasActiveReactInstance()) {
             reactContext
                 .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)

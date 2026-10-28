@@ -1,23 +1,60 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   Text,
   Switch,
   FlatList,
   StyleSheet,
-  TouchableOpacity,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useAdGuardVpn } from '../hooks/useAdGuardVpn';
+import { QueryLogRecord } from '../native/AdGuardVpnModule';
 
-export const DashboardScreen: React.FC = () => {
-  const { isRunning, stats, recentLogs, toggleVpn } = useAdGuardVpn();
+interface DashboardScreenProps {
+  isActive?: boolean;
+}
 
-  const dataSavedFormatted =
-    stats.dataSavedBytes > 1024 * 1024
+const RecentLogItem = React.memo(({ item }: { item: QueryLogRecord }) => (
+  <View style={styles.logItem}>
+    <View
+      style={[
+        styles.badge,
+        { backgroundColor: item.isBlocked ? '#FEE2E2' : '#D1FAE5' },
+      ]}
+    >
+      <Text
+        style={[
+          styles.badgeText,
+          { color: item.isBlocked ? '#DC2626' : '#059669' },
+        ]}
+      >
+        {item.isBlocked ? 'BLOCKED' : 'ALLOWED'}
+      </Text>
+    </View>
+    <View style={styles.logInfo}>
+      <Text style={styles.logDomain} numberOfLines={1}>
+        {item.domain}
+      </Text>
+      <Text style={styles.logSub} numberOfLines={1}>
+        {item.matchedRule ? `Rule: ${item.matchedRule}` : `Upstream: ${item.upstream}`}
+      </Text>
+    </View>
+    <Text style={styles.logDuration}>{item.durationMs.toFixed(0)} ms</Text>
+  </View>
+));
+
+export const DashboardScreen: React.FC<DashboardScreenProps> = ({ isActive = true }) => {
+  const { isRunning, stats, recentLogs, toggleVpn } = useAdGuardVpn(isActive);
+
+  const dataSavedFormatted = useMemo(() => {
+    return stats.dataSavedBytes > 1024 * 1024
       ? `${(stats.dataSavedBytes / (1024 * 1024)).toFixed(1)} MB`
       : `${Math.round(stats.dataSavedBytes / 1024)} KB`;
+  }, [stats.dataSavedBytes]);
+
+  const displayLogs = useMemo(() => recentLogs.slice(0, 10), [recentLogs]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -89,13 +126,17 @@ export const DashboardScreen: React.FC = () => {
       {/* Live Filtering Log Header */}
       <View style={styles.sectionHeaderRow}>
         <Text style={styles.sectionHeader}>Live Activity Feed</Text>
-        <Text style={styles.sectionBadge}>{recentLogs.length} events</Text>
+        <Text style={styles.sectionBadge}>{displayLogs.length} recent</Text>
       </View>
 
       {/* Live Stream List */}
       <FlatList
-        data={recentLogs}
-        keyExtractor={(item, index) => `${item.domain}-${item.timestamp}-${index}`}
+        data={displayLogs}
+        keyExtractor={(item, index) => `${item.timestamp}-${item.domain}-${index}`}
+        maxToRenderPerBatch={10}
+        initialNumToRender={10}
+        windowSize={3}
+        removeClippedSubviews={Platform.OS === 'android'}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>
@@ -103,34 +144,7 @@ export const DashboardScreen: React.FC = () => {
             </Text>
           </View>
         }
-        renderItem={({ item }) => (
-          <View style={styles.logItem}>
-            <View
-              style={[
-                styles.badge,
-                { backgroundColor: item.isBlocked ? '#FEE2E2' : '#D1FAE5' },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.badgeText,
-                  { color: item.isBlocked ? '#DC2626' : '#059669' },
-                ]}
-              >
-                {item.isBlocked ? 'BLOCKED' : 'ALLOWED'}
-              </Text>
-            </View>
-            <View style={styles.logInfo}>
-              <Text style={styles.logDomain} numberOfLines={1}>
-                {item.domain}
-              </Text>
-              <Text style={styles.logSub} numberOfLines={1}>
-                {item.matchedRule ? `Rule: ${item.matchedRule}` : `Upstream: ${item.upstream}`}
-              </Text>
-            </View>
-            <Text style={styles.logDuration}>{item.durationMs.toFixed(0)} ms</Text>
-          </View>
-        )}
+        renderItem={({ item }) => <RecentLogItem item={item} />}
       />
     </SafeAreaView>
   );
