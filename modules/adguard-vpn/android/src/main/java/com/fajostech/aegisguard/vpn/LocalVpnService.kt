@@ -173,23 +173,16 @@ class LocalVpnService : VpnService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             val request = NetworkRequest.Builder()
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
                 .build()
 
             networkCallback = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
-                    Log.d(TAG, "Active network changed: $network")
-                    setUnderlyingNetworks(arrayOf(network))
-
-                    // Extract device's active network DNS servers (e.g. Wi-Fi router or cellular DNS)
-                    try {
-                        val lp = connectivityManager.getLinkProperties(network)
-                        val systemDns = lp?.dnsServers?.mapNotNull { it.hostAddress } ?: emptyList()
-                        if (systemDns.isNotEmpty()) {
-                            val merged = (systemDns + currentConfig.upstreamDnsServers).distinct()
-                            currentConfig = currentConfig.copy(upstreamDnsServers = merged)
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Could not extract system DNS servers", e)
+                    val caps = connectivityManager.getNetworkCapabilities(network)
+                    // CRITICAL: NEVER set the VPN itself as the underlying network to prevent routing loops!
+                    if (caps != null && !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
+                        Log.d(TAG, "Active underlying network: $network")
+                        setUnderlyingNetworks(arrayOf(network))
                     }
                 }
 
@@ -197,7 +190,11 @@ class LocalVpnService : VpnService() {
                     setUnderlyingNetworks(null)
                 }
             }
-            connectivityManager.registerNetworkCallback(request, networkCallback!!)
+            try {
+                connectivityManager.registerNetworkCallback(request, networkCallback!!)
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not register network callback", e)
+            }
         }
     }
 

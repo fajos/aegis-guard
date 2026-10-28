@@ -20,10 +20,9 @@ import java.net.SocketTimeoutException
 class ParallelDnsResolver(
     private val upstreamServers: List<String> = listOf("94.140.14.14", "1.1.1.1", "8.8.8.8"),
     private val vpnService: VpnService? = null,
-    private val timeoutMs: Int = 3000,
+    private val timeoutMs: Int = 2000,
     private val dnsCache: DnsCache = DnsCache()
 ) {
-    private val dohResolver = DohResolver()
     private val scope = CoroutineScope(Dispatchers.IO)
 
     fun resolve(queryBytes: ByteArray, domain: String, qtype: Int): ByteArray? {
@@ -40,12 +39,17 @@ class ParallelDnsResolver(
             return cached
         }
 
+        // Filter out any virtual or loopback IPs to avoid recursive routing loops
+        val validUpstreams = upstreamServers
+            .filter { it != "198.18.53.53" && it != "127.0.0.1" && it != "0.0.0.0" && it.isNotBlank() }
+            .ifEmpty { listOf("94.140.14.14", "1.1.1.1", "8.8.8.8") }
+
         // 2. Race parallel upstreams with hard timeout
         return runBlocking {
             val winner = CompletableDeferred<ByteArray?>()
             val jobs = mutableListOf<Job>()
 
-            for (server in upstreamServers) {
+            for (server in validUpstreams) {
                 val job = scope.launch {
                     val result = querySingleUpstream(server, queryBytes)
                     if (result != null && !winner.isCompleted) {
@@ -54,15 +58,6 @@ class ParallelDnsResolver(
                 }
                 jobs.add(job)
             }
-
-            // Also launch DoH query as secure parallel candidate
-            val dohJob = scope.launch {
-                val dohRes = dohResolver.resolve(queryBytes)
-                if (dohRes != null && !winner.isCompleted) {
-                    winner.complete(dohRes)
-                }
-            }
-            jobs.add(dohJob)
 
             val fastestResponse = try {
                 withTimeoutOrNull(timeoutMs.toLong()) {
@@ -84,10 +79,15 @@ class ParallelDnsResolver(
     }
 
     private fun querySingleUpstream(server: String, queryBytes: ByteArray): ByteArray? {
+        if (server == "198.18.53.53" || server == "127.0.0.1" || server == "0.0.0.0") return null
         var socket: DatagramSocket? = null
         try {
             socket = DatagramSocket()
-            vpnService?.protect(socket)
+            val protected = vpnService?.protect(socket) ?: true
+            if (!protected) {
+                socket.close()
+                return null
+            }
             socket.soTimeout = timeoutMs
 
             val serverAddr = InetAddress.getByName(server)

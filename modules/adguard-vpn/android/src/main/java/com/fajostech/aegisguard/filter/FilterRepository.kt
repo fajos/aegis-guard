@@ -127,6 +127,9 @@ class FilterRepository(private val context: Context) {
     }
 
     fun initializeDefaults(engine: DnsFilterEngine) {
+        // Load baseline starter rules
+        engine.loadDefaultRules()
+
         // Load custom user rules
         loadUserRules(engine)
 

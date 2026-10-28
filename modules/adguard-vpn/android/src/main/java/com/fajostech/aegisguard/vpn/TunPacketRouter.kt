@@ -128,15 +128,29 @@ class TunPacketRouter(
             } else {
                 // Forward to real upstream DNS server via parallel protected sockets
                 dnsResponseBytes = parallelResolver.resolve(dnsPayload, domain, question.type)
-                upstreamUsed = if (dnsResponseBytes != null) {
-                    config.upstreamDnsServers.firstOrNull() ?: "Upstream"
+                if (dnsResponseBytes != null) {
+                    upstreamUsed = config.upstreamDnsServers.firstOrNull() ?: "Upstream"
                 } else {
-                    "Upstream (Timeout)"
+                    // Upstream timed out: synthesize quick fallback response instead of leaving client in silence
+                    dnsResponseBytes = DnsPacket.createBlockedResponse(
+                        request = dnsPacket,
+                        blockingMode = BlockingMode.REFUSED,
+                        ttl = 5L
+                    )
+                    upstreamUsed = "Upstream (Timeout)"
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error resolving DNS query for $domain", e)
-            dnsResponseBytes = null
+            dnsResponseBytes = try {
+                DnsPacket.createBlockedResponse(
+                    request = dnsPacket,
+                    blockingMode = BlockingMode.REFUSED,
+                    ttl = 5L
+                )
+            } catch (ex: Exception) {
+                null
+            }
             upstreamUsed = "Error"
         }
 
