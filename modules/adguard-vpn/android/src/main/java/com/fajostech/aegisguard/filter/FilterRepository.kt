@@ -75,6 +75,9 @@ class FilterRepository(private val context: Context) {
         // Load custom user rules
         loadUserRules(engine)
 
+        // Seed default starter rules if not yet present
+        seedDefaultRulesIfEmpty()
+
         // For predefined subscriptions, check if cached file exists
         for (sub in subscriptions) {
             if (!sub.isEnabled) continue
@@ -84,6 +87,61 @@ class FilterRepository(private val context: Context) {
                 sub.ruleCount = loaded
                 sub.lastUpdated = file.lastModified()
             }
+        }
+    }
+
+    private fun seedDefaultRulesIfEmpty() {
+        val file = File(filtersDir, "filter_1.txt")
+        if (!file.exists() || file.length() == 0L) {
+            val defaultRules = """
+                ! Aegis Guard Built-in Seed Filter Rules
+                ||doubleclick.net^
+                ||googleads.g.doubleclick.net^
+                ||adservice.google.com^
+                ||www.google-analytics.com^
+                ||analytics.google.com^
+                ||stats.g.doubleclick.net^
+                ||securepubads.g.doubleclick.net^
+                ||ad.doubleclick.net^
+                ||pagead2.googlesyndication.com^
+                ||ads.pubmatic.com^
+                ||ib.adnxs.com^
+                ||c.amazon-adsystem.com^
+                ||aax.amazon-adsystem.com^
+                ||fls-na.amazon-adsystem.com^
+                ||static.criteo.net^
+                ||cas.criteo.com^
+                ||bidder.criteo.com^
+                ||tr.snapchat.com^
+                ||ads.tiktok.com^
+                ||analytics.tiktok.com^
+                ||pixel.facebook.com^
+                ||an.facebook.com^
+                ||ads.yahoo.com^
+                ||taboola.com^
+                ||outbrain.com^
+                ||adcolony.com^
+                ||applovin.com^
+                ||applvn.com^
+                ||vungle.com^
+                ||unityads.unity3d.com^
+                ||chartboost.com^
+                ||ironsource.com^
+                ||supersonicads.com^
+                ||inmobi.com^
+                ||mobfox.com^
+                ||mopub.com^
+                ||adjust.com^
+                ||appsflyer.com^
+                ||branch.io^
+                ||kochava.com^
+                ||crashlytics.com^
+                ||adservice.google.*^
+                ||telemetry.sdk.*^
+                ||test-ad-domain.com^
+                ||adguard-dns-test.com^
+            """.trimIndent()
+            file.writeText(defaultRules)
         }
     }
 

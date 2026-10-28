@@ -37,6 +37,13 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
     init {
         reactContext.addActivityEventListener(this)
 
+        // Initialize default and user-configured filter rules
+        try {
+            filterRepository.initializeDefaults(LocalVpnService.filterEngine)
+        } catch (e: Exception) {
+            // Non-fatal fallback
+        }
+
         // Stream live DNS queries to React Native JS listeners
         FilteringLog.addListener { entry ->
             val params = Arguments.createMap().apply {
@@ -53,6 +60,16 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
     }
 
     override fun getName(): String = NAME
+
+    @ReactMethod
+    fun addListener(eventName: String) {
+        // Keep: Required for React Native NativeEventEmitter
+    }
+
+    @ReactMethod
+    fun removeListeners(count: Int) {
+        // Keep: Required for React Native NativeEventEmitter
+    }
 
     @ReactMethod
     fun isRunning(promise: Promise) {

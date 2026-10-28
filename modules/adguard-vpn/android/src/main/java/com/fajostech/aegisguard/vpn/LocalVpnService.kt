@@ -17,6 +17,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.fajostech.aegisguard.appmanagement.AppManager
 import com.fajostech.aegisguard.filter.DnsFilterEngine
+import com.fajostech.aegisguard.filter.FilterRepository
 import com.fajostech.aegisguard.stats.StatisticsManager
 import java.io.IOException
 
@@ -75,6 +76,14 @@ class LocalVpnService : VpnService() {
 
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
+
+        try {
+            if (filterEngine.getRuleCount() == 0) {
+                FilterRepository(this).initializeDefaults(filterEngine)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not initialize filter defaults", e)
+        }
 
         try {
             val builder = Builder()
