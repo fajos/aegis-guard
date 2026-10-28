@@ -61,16 +61,16 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun startVpn(promise: Promise) {
-        val activity = currentActivity
-        if (activity == null) {
+        val act = currentActivity
+        if (act == null) {
             promise.reject("NO_ACTIVITY", "Current activity is null")
             return
         }
 
-        val prepareIntent = VpnService.prepare(activity)
+        val prepareIntent = VpnService.prepare(act)
         if (prepareIntent != null) {
             preparePromise = promise
-            activity.startActivityForResult(prepareIntent, VPN_REQUEST_CODE, null)
+            act.startActivityForResult(prepareIntent, VPN_REQUEST_CODE)
         } else {
             launchVpnService()
             promise.resolve(true)
@@ -278,7 +278,7 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
         }
     }
 
-    override fun onActivityResult(activity: Activity?, requestCode: Int, resultCode: Int, data: Intent?) {
+    override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == VPN_REQUEST_CODE) {
             if (resultCode == Activity.RESULT_OK) {
                 launchVpnService()
@@ -290,5 +290,5 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
         }
     }
 
-    override fun onNewIntent(intent: Intent?) {}
+    override fun onNewIntent(intent: Intent) {}
 }
