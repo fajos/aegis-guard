@@ -16,9 +16,9 @@ class BootUpReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        val action = intent.action
-        if (Intent.ACTION_BOOT_COMPLETED == action || "android.intent.action.QUICKBOOT_POWERON" == action) {
-            Log.i(TAG, "Device booted, starting AdGuard VPN service...")
+        val intentAction = intent.action
+        if (Intent.ACTION_BOOT_COMPLETED == intentAction || "android.intent.action.QUICKBOOT_POWERON" == intentAction) {
+            Log.i(TAG, "Device booted, starting Aegis Guard VPN service...")
             val serviceIntent = Intent(context, LocalVpnService::class.java).apply {
                 action = LocalVpnService.ACTION_START
             }

@@ -3,22 +3,21 @@ package com.fajostech.aegisguard.bridge
 import android.app.Activity
 import android.content.Intent
 import android.net.VpnService
-import com.fajostech.aegisguard.MainApplication
+import com.fajostech.aegisguard.appmanagement.AppManager
 import com.fajostech.aegisguard.filter.AdBlockRule
 import com.fajostech.aegisguard.filter.BlockingMode
+import com.fajostech.aegisguard.filter.FilterRepository
 import com.fajostech.aegisguard.log.FilteringLog
 import com.fajostech.aegisguard.stats.StatisticsManager
 import com.fajostech.aegisguard.vpn.LocalVpnService
-import com.fajostech.aegisguard.vpn.VpnConfiguration
 import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
- * React Native Bridge Module providing complete AdGuard DNS filtering,
+ * React Native Bridge Module providing complete Aegis Guard DNS filtering,
  * local VPN lifecycle, statistics, and system management capabilities.
  */
 class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
@@ -31,6 +30,9 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
 
     private var preparePromise: Promise? = null
     private val scope = CoroutineScope(Dispatchers.Main)
+
+    private val filterRepository by lazy { FilterRepository(reactContext) }
+    private val appManager by lazy { AppManager(reactContext) }
 
     init {
         reactContext.addActivityEventListener(this)
@@ -68,7 +70,7 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
         val prepareIntent = VpnService.prepare(activity)
         if (prepareIntent != null) {
             preparePromise = promise
-            activity.startActivityForResult(prepareIntent, VPN_REQUEST_CODE)
+            activity.startActivityForResult(prepareIntent, VPN_REQUEST_CODE, null)
         } else {
             launchVpnService()
             promise.resolve(true)
@@ -101,9 +103,9 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
         val rule = AdBlockRule.parse(ruleString)
         if (rule != null) {
             LocalVpnService.filterEngine.loadRulesFromString(ruleString)
-            val currentRules = MainApplication.instance.filterRepository.getUserRules()
+            val currentRules = filterRepository.getUserRules()
             val newRules = if (currentRules.isBlank()) ruleString else "$currentRules\n$ruleString"
-            MainApplication.instance.filterRepository.saveUserRules(newRules, LocalVpnService.filterEngine)
+            filterRepository.saveUserRules(newRules, LocalVpnService.filterEngine)
             promise.resolve(true)
         } else {
             promise.reject("INVALID_RULE", "Could not parse rule: $ruleString")
@@ -112,26 +114,26 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun getUserRules(promise: Promise) {
-        val rules = MainApplication.instance.filterRepository.getUserRules()
+        val rules = filterRepository.getUserRules()
         promise.resolve(rules)
     }
 
     @ReactMethod
     fun saveUserRules(rulesText: String, promise: Promise) {
-        MainApplication.instance.filterRepository.saveUserRules(rulesText, LocalVpnService.filterEngine)
+        filterRepository.saveUserRules(rulesText, LocalVpnService.filterEngine)
         promise.resolve(true)
     }
 
     @ReactMethod
     fun getFilterSubscriptions(promise: Promise) {
-        val subscriptions = MainApplication.instance.filterRepository.getSubscriptions()
+        val subscriptions = filterRepository.getSubscriptions()
         val array = Arguments.createArray()
         for (sub in subscriptions) {
             val map = Arguments.createMap().apply {
                 putInt("id", sub.id)
                 putString("name", sub.name)
                 putString("description", sub.description)
-                putString("url", sub.url)
+                putString("url", sub.url ?: "")
                 putBoolean("isEnabled", sub.isEnabled)
                 putInt("ruleCount", sub.ruleCount)
                 putDouble("lastUpdated", sub.lastUpdated.toDouble())
@@ -144,10 +146,10 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun toggleFilterSubscription(id: Double, enabled: Boolean, promise: Promise) {
-        val sub = MainApplication.instance.filterRepository.getSubscriptions().find { it.id == id.toInt() }
+        val sub = filterRepository.getSubscriptions().find { it.id == id.toInt() }
         if (sub != null) {
             sub.isEnabled = enabled
-            MainApplication.instance.filterRepository.reloadAll(LocalVpnService.filterEngine)
+            filterRepository.reloadAll(LocalVpnService.filterEngine)
             promise.resolve(true)
         } else {
             promise.reject("NOT_FOUND", "Subscription with id $id not found")
@@ -158,11 +160,11 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
     fun updateFilterSubscriptions(promise: Promise) {
         scope.launch {
             try {
-                val subs = MainApplication.instance.filterRepository.getSubscriptions()
+                val subs = filterRepository.getSubscriptions()
                 var updated = 0
                 for (sub in subs) {
                     if (sub.isEnabled) {
-                        val ok = MainApplication.instance.filterRepository.updateSubscription(sub, LocalVpnService.filterEngine)
+                        val ok = filterRepository.updateSubscription(sub, LocalVpnService.filterEngine)
                         if (ok) updated++
                     }
                 }
@@ -177,7 +179,7 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
     fun getInstalledApps(promise: Promise) {
         scope.launch {
             try {
-                val apps = MainApplication.instance.appManager.getInstalledApps()
+                val apps = appManager.getInstalledApps()
                 val array = Arguments.createArray()
                 for (app in apps) {
                     val map = Arguments.createMap().apply {
@@ -198,7 +200,7 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun setAppBypass(packageName: String, bypass: Boolean, promise: Promise) {
-        MainApplication.instance.appManager.setAppBypass(packageName, bypass)
+        appManager.setAppBypass(packageName, bypass)
         promise.resolve(true)
     }
 
@@ -244,7 +246,8 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
     fun setDnsSettings(upstreamServers: ReadableArray, blockingModeStr: String, promise: Promise) {
         val servers = mutableListOf<String>()
         for (i in 0 until upstreamServers.size()) {
-            servers.add(upstreamServers.getString(i))
+            val item = upstreamServers.getString(i)
+            if (item != null) servers.add(item)
         }
 
         val mode = try {
