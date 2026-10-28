@@ -61,7 +61,7 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun startVpn(promise: Promise) {
-        val act = currentActivity
+        val act = reactContext.currentActivity
         if (act == null) {
             promise.reject("NO_ACTIVITY", "Current activity is null")
             return
