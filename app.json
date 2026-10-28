@@ -4,11 +4,13 @@
     "slug": "aegis-guard",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
+      "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#10B981"
+      "backgroundColor": "#030B20"
     },
     "ios": {
       "supportsTablet": true,
@@ -30,6 +32,10 @@
     },
     "android": {
       "package": "com.fajostech.aegisguard",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#030B20"
+      },
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE",
@@ -41,6 +47,9 @@
         "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
         "QUERY_ALL_PACKAGES"
       ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "./plugins/withAdguardVpn"
