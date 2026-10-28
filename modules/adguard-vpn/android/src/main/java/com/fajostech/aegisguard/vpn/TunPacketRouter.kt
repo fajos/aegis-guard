@@ -5,6 +5,7 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.fajostech.aegisguard.dns.DnsPacket
 import com.fajostech.aegisguard.dns.ParallelDnsResolver
+import com.fajostech.aegisguard.filter.BlockingMode
 import com.fajostech.aegisguard.filter.DnsFilterEngine
 import com.fajostech.aegisguard.log.FilteringLog
 import com.fajostech.aegisguard.log.QueryLogEntry
