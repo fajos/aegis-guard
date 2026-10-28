@@ -53,6 +53,12 @@
     },
     "plugins": [
       "./plugins/withAdguardVpn"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "28b53352-a193-4249-a3d1-c48bff8492e5"
+      }
+    },
+    "owner": "aegis-guard"
   }
 }
