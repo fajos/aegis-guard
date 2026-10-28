@@ -1,10 +1,11 @@
-let withAndroidManifest, withEntitlementsPlist, withStringsXml, createRunOncePlugin;
+let withAndroidManifest, withEntitlementsPlist, withStringsXml, withGradleProperties, createRunOncePlugin;
 
 try {
   const plugins = require('expo/config-plugins');
   withAndroidManifest = plugins.withAndroidManifest;
   withEntitlementsPlist = plugins.withEntitlementsPlist;
   withStringsXml = plugins.withStringsXml;
+  withGradleProperties = plugins.withGradleProperties;
   createRunOncePlugin = plugins.createRunOncePlugin;
 } catch (e) {
   // Fallback when @expo/config-plugins is not yet installed in node_modules
@@ -17,6 +18,7 @@ try {
  * Configures AndroidManifest.xml with LocalVpnService (android.net.VpnService),
  * Quick Settings Tile, Watchdog Service, Boot Receiver, and special-use FGS permissions.
  * Configures iOS entitlements with NetworkExtension packet-tunnel and App Groups.
+ * Injects packaging options into gradle.properties to resolve multi-release JAR META-INF collisions.
  */
 function withAdguardAndroid(config) {
   if (!withAndroidManifest) return config;
@@ -149,6 +151,33 @@ function withAdguardStrings(config) {
   });
 }
 
+function withAdguardPackagingProperties(config) {
+  if (!withGradleProperties) return config;
+  return withGradleProperties(config, (config) => {
+    const props = [
+      {
+        type: 'property',
+        key: 'android.packagingOptions.pickFirsts',
+        value: '**/MANIFEST.MF,META-INF/versions/9/OSGI-INF/MANIFEST.MF',
+      },
+      {
+        type: 'property',
+        key: 'android.packagingOptions.excludes',
+        value: 'META-INF/versions/9/OSGI-INF/MANIFEST.MF,META-INF/DEPENDENCIES,META-INF/LICENSE*,META-INF/NOTICE*',
+      },
+    ];
+    props.forEach((p) => {
+      const idx = config.modResults.findIndex((item) => item.key === p.key);
+      if (idx !== -1) {
+        config.modResults[idx] = p;
+      } else {
+        config.modResults.push(p);
+      }
+    });
+    return config;
+  });
+}
+
 function withAdguardIos(config) {
   if (!withEntitlementsPlist) return config;
   return withEntitlementsPlist(config, (config) => {
@@ -161,6 +190,7 @@ function withAdguardIos(config) {
 function withAdguardVpn(config) {
   config = withAdguardAndroid(config);
   config = withAdguardStrings(config);
+  config = withAdguardPackagingProperties(config);
   config = withAdguardIos(config);
   return config;
 }

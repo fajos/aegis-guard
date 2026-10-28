@@ -22,6 +22,22 @@ android {
     kotlinOptions {
         jvmTarget = '17'
     }
+
+    packagingOptions {
+        resources {
+            excludes += [
+                "META-INF/versions/9/OSGI-INF/MANIFEST.MF",
+                "META-INF/versions/9/OSGI-INF/**",
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE*",
+                "META-INF/NOTICE*"
+            ]
+            pickFirsts += [
+                "**/MANIFEST.MF",
+                "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+            ]
+        }
+    }
 }
 
 dependencies {
