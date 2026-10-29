@@ -30,8 +30,8 @@ public class AdGuardVpnModule: Module {
         let dohSettings = NEDNSOverHTTPSSettings(servers: ["94.140.14.14", "94.140.15.15"])
         dohSettings.serverURL = URL(string: "https://dns.adguard-dns.com/dns-query")
 
+        manager.localizedDescription = "Aegis Guard DNS"
         manager.dnsSettings = dohSettings
-        manager.isEnabled = true
 
         manager.saveToPreferences { saveError in
           if let error = saveError {
@@ -48,16 +48,15 @@ public class AdGuardVpnModule: Module {
       let manager = NEDNSSettingsManager.shared()
       manager.loadFromPreferences { loadError in
         if let error = loadError {
-          promise.reject("LOAD_ERROR", error.localizedDescription)
+          self.sendEvent("onVpnStateChanged", ["isRunning": false])
+          promise.resolve(true)
           return
         }
 
-        manager.isEnabled = false
-        manager.dnsSettings = nil
-
-        manager.saveToPreferences { saveError in
-          if let error = saveError {
-            promise.reject("SAVE_ERROR", error.localizedDescription)
+        manager.removeFromPreferences { removeError in
+          if let error = removeError {
+            self.sendEvent("onVpnStateChanged", ["isRunning": false])
+            promise.resolve(true)
           } else {
             self.sendEvent("onVpnStateChanged", ["isRunning": false])
             promise.resolve(true)
