@@ -23,6 +23,7 @@
         ]
       },
       "infoPlist": {
+        "CFBundleDisplayName": "Aegis Guard",
         "UIBackgroundModes": [
           "fetch",
           "network-authentication"
