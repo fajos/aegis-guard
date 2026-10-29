@@ -69,8 +69,12 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
         }
       });
       setBenchmarks(map);
-    } catch (e) {
-      console.error('[DNS Benchmark] error:', e);
+    } catch (e: any) {
+      console.warn('[DNS Benchmark] Notice:', e?.message || e);
+      Alert.alert(
+        'Rebuild Required',
+        'The DNS Radar Speed Test requires the newly compiled APK binary because it uses native UDP sockets. Please rebuild your APK (e.g. via "eas build") to activate this feature on your device.'
+      );
     } finally {
       setIsBenchmarking(false);
     }

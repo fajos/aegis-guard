@@ -7,6 +7,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { AdGuardVpn } from '../native/AdGuardVpnModule';
 
@@ -42,6 +43,16 @@ export const ShieldAuditModal: React.FC<ShieldAuditModalProps> = ({
   const [hasRun, setHasRun] = useState(false);
 
   const runAudit = async () => {
+    try {
+      await AdGuardVpn.testDomainFilter(TEST_VECTORS[0].domain);
+    } catch (e: any) {
+      Alert.alert(
+        'Rebuild Required',
+        'The Diagnostic Audit requires the newly compiled APK binary. Please rebuild your APK (e.g. via "eas build") to activate this feature.'
+      );
+      return;
+    }
+
     setIsRunning(true);
     setHasRun(true);
     const list: AuditItem[] = [];

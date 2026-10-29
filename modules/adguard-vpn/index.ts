@@ -92,7 +92,45 @@ if (!AdGuardVpnModule) {
   );
 }
 
-export const AdGuardVpn = AdGuardVpnModule as AdGuardVpnInterface;
+export const AdGuardVpn: AdGuardVpnInterface = {
+  ...(AdGuardVpnModule || {}),
+  benchmarkDnsServers: async (servers: string[]): Promise<DnsBenchmarkResult[]> => {
+    if (typeof AdGuardVpnModule?.benchmarkDnsServers === 'function') {
+      return AdGuardVpnModule.benchmarkDnsServers(servers);
+    }
+    throw new Error('Rebuild Required: Please rebuild and install the new APK to enable native UDP socket benchmarks.');
+  },
+  testDomainFilter: async (domain: string): Promise<DomainFilterTestResult> => {
+    if (typeof AdGuardVpnModule?.testDomainFilter === 'function') {
+      return AdGuardVpnModule.testDomainFilter(domain);
+    }
+    throw new Error('Rebuild Required: Please rebuild and install the new APK to enable live diagnostic testing.');
+  },
+  setSafeSearchEnabled: async (enabled: boolean): Promise<boolean> => {
+    if (typeof AdGuardVpnModule?.setSafeSearchEnabled === 'function') {
+      return AdGuardVpnModule.setSafeSearchEnabled(enabled);
+    }
+    return false;
+  },
+  isSafeSearchEnabled: async (): Promise<boolean> => {
+    if (typeof AdGuardVpnModule?.isSafeSearchEnabled === 'function') {
+      return AdGuardVpnModule.isSafeSearchEnabled();
+    }
+    return false;
+  },
+  setParentalLockEnabled: async (enabled: boolean): Promise<boolean> => {
+    if (typeof AdGuardVpnModule?.setParentalLockEnabled === 'function') {
+      return AdGuardVpnModule.setParentalLockEnabled(enabled);
+    }
+    return false;
+  },
+  isParentalLockEnabled: async (): Promise<boolean> => {
+    if (typeof AdGuardVpnModule?.isParentalLockEnabled === 'function') {
+      return AdGuardVpnModule.isParentalLockEnabled();
+    }
+    return false;
+  },
+};
 
 export const vpnEventEmitter: NativeEventEmitter = AdGuardVpnModule
   ? new NativeEventEmitter(AdGuardVpnModule)
