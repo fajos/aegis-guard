@@ -10,11 +10,10 @@ import { StatusBar } from 'expo-status-bar';
 import { DashboardScreen } from './src/screens/DashboardScreen';
 import { QueryLogScreen } from './src/screens/QueryLogScreen';
 import { FiltersScreen } from './src/screens/FiltersScreen';
-import { DnsSettingsScreen } from './src/screens/DnsSettingsScreen';
 import { AppManagementScreen } from './src/screens/AppManagementScreen';
-import { UserRulesScreen } from './src/screens/UserRulesScreen';
+import { SettingsScreen } from './src/screens/SettingsScreen';
 
-type Tab = 'dashboard' | 'queryLog' | 'filters' | 'dns' | 'apps' | 'rules';
+type Tab = 'dashboard' | 'queryLog' | 'filters' | 'apps' | 'settings';
 
 interface TabItem {
   id: Tab;
@@ -26,9 +25,8 @@ const TABS: TabItem[] = [
   { id: 'dashboard', title: 'Shield', icon: '🛡️' },
   { id: 'queryLog', title: 'Log', icon: '📋' },
   { id: 'filters', title: 'Filters', icon: '⚡' },
-  { id: 'dns', title: 'DNS', icon: '🌐' },
   { id: 'apps', title: 'Apps', icon: '📱' },
-  { id: 'rules', title: 'Rules', icon: '✏️' },
+  { id: 'settings', title: 'Settings', icon: '⚙️' },
 ];
 
 function MainNavigator(): React.JSX.Element {
@@ -45,7 +43,10 @@ function MainNavigator(): React.JSX.Element {
       {/* Screen Body - Persistent Screen Instances across Tabs */}
       <View style={styles.screenContainer}>
         <View style={[styles.screenWrapper, activeTab !== 'dashboard' && styles.hidden]}>
-          <DashboardScreen isActive={activeTab === 'dashboard'} />
+          <DashboardScreen
+            isActive={activeTab === 'dashboard'}
+            onNavigateToTab={(tab) => setActiveTab(tab as Tab)}
+          />
         </View>
         <View style={[styles.screenWrapper, activeTab !== 'queryLog' && styles.hidden]}>
           <QueryLogScreen isActive={activeTab === 'queryLog'} />
@@ -53,14 +54,11 @@ function MainNavigator(): React.JSX.Element {
         <View style={[styles.screenWrapper, activeTab !== 'filters' && styles.hidden]}>
           <FiltersScreen />
         </View>
-        <View style={[styles.screenWrapper, activeTab !== 'dns' && styles.hidden]}>
-          <DnsSettingsScreen />
-        </View>
         <View style={[styles.screenWrapper, activeTab !== 'apps' && styles.hidden]}>
           <AppManagementScreen />
         </View>
-        <View style={[styles.screenWrapper, activeTab !== 'rules' && styles.hidden]}>
-          <UserRulesScreen />
+        <View style={[styles.screenWrapper, activeTab !== 'settings' && styles.hidden]}>
+          <SettingsScreen />
         </View>
       </View>
 

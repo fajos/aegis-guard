@@ -44,7 +44,11 @@ const PRESET_PROVIDERS: PresetServer[] = [
 let cachedServers: string[] = ['94.140.14.14', '1.1.1.1'];
 let cachedBlockingMode: 'ADDRESS' | 'NXDOMAIN' | 'REFUSED' = 'ADDRESS';
 
-export const DnsSettingsScreen: React.FC = () => {
+interface DnsSettingsScreenProps {
+  isNested?: boolean;
+}
+
+export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested = false }) => {
   const [selectedServers, setSelectedServers] = useState<string[]>(cachedServers);
   const [customServer, setCustomServer] = useState('');
   const [blockingMode, setBlockingMode] = useState<'ADDRESS' | 'NXDOMAIN' | 'REFUSED'>(cachedBlockingMode);
@@ -100,14 +104,19 @@ export const DnsSettingsScreen: React.FC = () => {
     }
   };
 
+  const Container = isNested ? View : SafeAreaView;
+
   return (
-    <SafeAreaView style={styles.container}>
+    <Container style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Title */}
-        <Text style={styles.heading}>DNS Upstream & Blocking</Text>
-        <Text style={styles.subheading}>
-          Control upstream recursive resolvers and blocking response modes.
-        </Text>
+        {!isNested && (
+          <>
+            <Text style={styles.heading}>DNS Upstream & Blocking</Text>
+            <Text style={styles.subheading}>
+              Control upstream recursive resolvers and blocking response modes.
+            </Text>
+          </>
+        )}
 
         {/* Selected Upstream Servers */}
         <Text style={styles.sectionTitle}>Active Upstream Resolvers</Text>
@@ -211,7 +220,7 @@ export const DnsSettingsScreen: React.FC = () => {
           <Text style={styles.saveButtonText}>Save & Apply DNS Settings</Text>
         </TouchableOpacity>
       </ScrollView>
-    </SafeAreaView>
+    </Container>
   );
 };
 

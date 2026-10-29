@@ -1,52 +1,26 @@
 import React, { useMemo } from 'react';
 import {
+  ScrollView,
   View,
   Text,
   Switch,
-  FlatList,
+  TouchableOpacity,
   StyleSheet,
-  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useAdGuardVpn } from '../hooks/useAdGuardVpn';
-import { QueryLogRecord } from '../native/AdGuardVpnModule';
 
 interface DashboardScreenProps {
   isActive?: boolean;
+  onNavigateToTab?: (tab: 'queryLog' | 'filters' | 'apps' | 'settings') => void;
 }
 
-const RecentLogItem = React.memo(({ item }: { item: QueryLogRecord }) => (
-  <View style={styles.logItem}>
-    <View
-      style={[
-        styles.badge,
-        { backgroundColor: item.isBlocked ? '#FEE2E2' : '#D1FAE5' },
-      ]}
-    >
-      <Text
-        style={[
-          styles.badgeText,
-          { color: item.isBlocked ? '#DC2626' : '#059669' },
-        ]}
-      >
-        {item.isBlocked ? 'BLOCKED' : 'ALLOWED'}
-      </Text>
-    </View>
-    <View style={styles.logInfo}>
-      <Text style={styles.logDomain} numberOfLines={1}>
-        {item.domain}
-      </Text>
-      <Text style={styles.logSub} numberOfLines={1}>
-        {item.matchedRule ? `Rule: ${item.matchedRule}` : `Upstream: ${item.upstream}`}
-      </Text>
-    </View>
-    <Text style={styles.logDuration}>{item.durationMs.toFixed(0)} ms</Text>
-  </View>
-));
-
-export const DashboardScreen: React.FC<DashboardScreenProps> = ({ isActive = true }) => {
-  const { isRunning, stats, recentLogs, toggleVpn } = useAdGuardVpn(isActive);
+export const DashboardScreen: React.FC<DashboardScreenProps> = ({
+  isActive = true,
+  onNavigateToTab,
+}) => {
+  const { isRunning, stats, toggleVpn } = useAdGuardVpn(isActive);
 
   const dataSavedFormatted = useMemo(() => {
     return stats.dataSavedBytes > 1024 * 1024
@@ -54,98 +28,144 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ isActive = tru
       : `${Math.round(stats.dataSavedBytes / 1024)} KB`;
   }, [stats.dataSavedBytes]);
 
-  const displayLogs = useMemo(() => recentLogs.slice(0, 10), [recentLogs]);
-
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Aegis Guard Protection</Text>
-        <Text style={styles.headerSubtitle}>Local VPN DNS Engine</Text>
-      </View>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Aegis Guard Protection</Text>
+          <Text style={styles.headerSubtitle}>Local VPN DNS Engine</Text>
+        </View>
 
-      {/* Main Status Hero Card */}
-      <View style={[styles.statusCard, isRunning ? styles.statusCardActive : styles.statusCardPaused]}>
-        <View style={styles.statusContent}>
-          <View style={[styles.statusDot, { backgroundColor: isRunning ? '#10B981' : '#9CA3AF' }]} />
-          <View style={styles.statusTextContainer}>
-            <Text style={styles.statusTitle}>
-              {isRunning ? 'Protection is Enabled' : 'Protection is Paused'}
+        {/* Main Status Hero Card */}
+        <View
+          style={[
+            styles.statusCard,
+            isRunning ? styles.statusCardActive : styles.statusCardPaused,
+          ]}
+        >
+          <View style={styles.statusContent}>
+            <View
+              style={[
+                styles.statusDot,
+                { backgroundColor: isRunning ? '#10B981' : '#9CA3AF' },
+              ]}
+            />
+            <View style={styles.statusTextContainer}>
+              <Text style={styles.statusTitle}>
+                {isRunning ? 'Protection is Enabled' : 'Protection is Paused'}
+              </Text>
+              <Text style={styles.statusSubtitle}>
+                {isRunning
+                  ? `Local VPN active • ${stats.ruleCount.toLocaleString()} rules loaded`
+                  : 'Tap switch to protect against ads and trackers'}
+              </Text>
+            </View>
+          </View>
+          <Switch
+            value={isRunning}
+            onValueChange={toggleVpn}
+            trackColor={{ false: '#D1D5DB', true: '#6EE7B7' }}
+            thumbColor={isRunning ? '#10B981' : '#F3F4F6'}
+            style={styles.switchControl}
+          />
+        </View>
+
+        {/* 4-Card Stats Grid */}
+        <View style={styles.statsGrid}>
+          <View style={styles.statBox}>
+            <Text style={[styles.statValue, { color: '#EF4444' }]}>
+              {stats.blockedQueries.toLocaleString()}
             </Text>
-            <Text style={styles.statusSubtitle}>
-              {isRunning
-                ? `Local VPN active • ${stats.ruleCount.toLocaleString()} rules loaded`
-                : 'Tap switch to protect against ads and trackers'}
+            <Text style={styles.statLabel}>Blocked Requests</Text>
+          </View>
+
+          <View style={styles.statBox}>
+            <Text style={[styles.statValue, { color: '#3B82F6' }]}>
+              {stats.totalQueries.toLocaleString()}
             </Text>
+            <Text style={styles.statLabel}>Total DNS Queries</Text>
           </View>
         </View>
-        <Switch
-          value={isRunning}
-          onValueChange={toggleVpn}
-          trackColor={{ false: '#D1D5DB', true: '#6EE7B7' }}
-          thumbColor={isRunning ? '#10B981' : '#F3F4F6'}
-          style={styles.switchControl}
-        />
-      </View>
 
-      {/* 4-Card Stats Grid */}
-      <View style={styles.statsGrid}>
-        <View style={styles.statBox}>
-          <Text style={[styles.statValue, { color: '#EF4444' }]}>
-            {stats.blockedQueries.toLocaleString()}
-          </Text>
-          <Text style={styles.statLabel}>Blocked Requests</Text>
-        </View>
-
-        <View style={styles.statBox}>
-          <Text style={[styles.statValue, { color: '#3B82F6' }]}>
-            {stats.totalQueries.toLocaleString()}
-          </Text>
-          <Text style={styles.statLabel}>Total DNS Queries</Text>
-        </View>
-      </View>
-
-      <View style={styles.statsGrid}>
-        <View style={styles.statBox}>
-          <Text style={[styles.statValue, { color: '#10B981' }]}>
-            {dataSavedFormatted}
-          </Text>
-          <Text style={styles.statLabel}>Data Saved</Text>
-        </View>
-
-        <View style={styles.statBox}>
-          <Text style={[styles.statValue, { color: '#8B5CF6' }]}>
-            {stats.blockRate.toFixed(1)}%
-          </Text>
-          <Text style={styles.statLabel}>Block Ratio</Text>
-        </View>
-      </View>
-
-      {/* Live Filtering Log Header */}
-      <View style={styles.sectionHeaderRow}>
-        <Text style={styles.sectionHeader}>Live Activity Feed</Text>
-        <Text style={styles.sectionBadge}>{displayLogs.length} recent</Text>
-      </View>
-
-      {/* Live Stream List */}
-      <FlatList
-        data={displayLogs}
-        keyExtractor={(item, index) => `${item.timestamp}-${item.domain}-${index}`}
-        maxToRenderPerBatch={10}
-        initialNumToRender={10}
-        windowSize={3}
-        removeClippedSubviews={Platform.OS === 'android'}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>
-              {isRunning ? 'Waiting for DNS queries...' : 'Start protection to view live activity'}
+        <View style={styles.statsGrid}>
+          <View style={styles.statBox}>
+            <Text style={[styles.statValue, { color: '#10B981' }]}>
+              {dataSavedFormatted}
             </Text>
+            <Text style={styles.statLabel}>Data Saved</Text>
           </View>
-        }
-        renderItem={({ item }) => <RecentLogItem item={item} />}
-      />
+
+          <View style={styles.statBox}>
+            <Text style={[styles.statValue, { color: '#8B5CF6' }]}>
+              {stats.blockRate.toFixed(1)}%
+            </Text>
+            <Text style={styles.statLabel}>Block Ratio</Text>
+          </View>
+        </View>
+
+        {/* Quick Hub Navigation Cards */}
+        <Text style={styles.sectionHeading}>Protection Management</Text>
+
+        {/* Query Log Card */}
+        <TouchableOpacity
+          style={styles.actionCard}
+          activeOpacity={0.7}
+          onPress={() => onNavigateToTab?.('queryLog')}
+        >
+          <View style={styles.actionCardLeft}>
+            <Text style={styles.actionCardIcon}>📋</Text>
+            <View style={styles.actionCardTextContainer}>
+              <Text style={styles.actionCardTitle}>DNS Query Log</Text>
+              <Text style={styles.actionCardSubtitle}>
+                Search live domain requests, latency, and 1-tap block/whitelist
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.actionCardArrow}>→</Text>
+        </TouchableOpacity>
+
+        {/* Filter Subscriptions Card */}
+        <TouchableOpacity
+          style={styles.actionCard}
+          activeOpacity={0.7}
+          onPress={() => onNavigateToTab?.('filters')}
+        >
+          <View style={styles.actionCardLeft}>
+            <Text style={styles.actionCardIcon}>⚡</Text>
+            <View style={styles.actionCardTextContainer}>
+              <Text style={styles.actionCardTitle}>Filter Subscriptions</Text>
+              <Text style={styles.actionCardSubtitle}>
+                AdGuard Base, Mobile & tracking lists ({stats.ruleCount.toLocaleString()} rules)
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.actionCardArrow}>→</Text>
+        </TouchableOpacity>
+
+        {/* Settings Card */}
+        <TouchableOpacity
+          style={styles.actionCard}
+          activeOpacity={0.7}
+          onPress={() => onNavigateToTab?.('settings')}
+        >
+          <View style={styles.actionCardLeft}>
+            <Text style={styles.actionCardIcon}>⚙️</Text>
+            <View style={styles.actionCardTextContainer}>
+              <Text style={styles.actionCardTitle}>DNS & Custom Rules</Text>
+              <Text style={styles.actionCardSubtitle}>
+                Configure upstream resolvers, blocking modes, and custom rules
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.actionCardArrow}>→</Text>
+        </TouchableOpacity>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -154,8 +174,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F9FAFB',
+  },
+  scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 12,
+    paddingBottom: 24,
   },
   header: {
     marginBottom: 16,
@@ -196,7 +219,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    paddingRight: 10,
+    marginRight: 12,
   },
   statusDot: {
     width: 12,
@@ -208,111 +231,93 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   statusTitle: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '700',
     color: '#111827',
   },
   statusSubtitle: {
     fontSize: 12,
     color: '#4B5563',
-    marginTop: 3,
+    marginTop: 2,
   },
   switchControl: {
-    transform: [{ scaleX: 1.15 }, { scaleY: 1.15 }],
+    transform: [{ scaleX: 1.1 }, { scaleY: 1.1 }],
   },
   statsGrid: {
     flexDirection: 'row',
-    marginBottom: 10,
-    gap: 10,
+    justifyContent: 'space-between',
+    marginBottom: 12,
   },
   statBox: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
+    borderRadius: 12,
     padding: 16,
-    alignItems: 'center',
+    marginHorizontal: 4,
     borderWidth: 1,
-    borderColor: '#F3F4F6',
+    borderColor: '#E5E7EB',
     elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 3,
   },
   statValue: {
     fontSize: 22,
     fontWeight: '800',
+    marginBottom: 4,
   },
   statLabel: {
     fontSize: 12,
     color: '#6B7280',
-    marginTop: 4,
     fontWeight: '500',
   },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginVertical: 12,
-  },
-  sectionHeader: {
+  sectionHeading: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#1F2937',
+    color: '#111827',
+    marginTop: 12,
+    marginBottom: 12,
   },
-  sectionBadge: {
-    fontSize: 12,
-    color: '#6B7280',
-    backgroundColor: '#E5E7EB',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    paddingVertical: 32,
-  },
-  emptyText: {
-    fontSize: 13,
-    color: '#9CA3AF',
-  },
-  logItem: {
+  actionCard: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 8,
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#F3F4F6',
+    borderColor: '#E5E7EB',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
   },
-  badge: {
-    borderRadius: 6,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    marginRight: 10,
+  actionCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 12,
   },
-  badgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.5,
+  actionCardIcon: {
+    fontSize: 24,
+    marginRight: 14,
   },
-  logInfo: {
+  actionCardTextContainer: {
     flex: 1,
   },
-  logDomain: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1F2937',
+  actionCardTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
   },
-  logSub: {
-    fontSize: 11,
+  actionCardSubtitle: {
+    fontSize: 12,
     color: '#6B7280',
     marginTop: 2,
+    lineHeight: 16,
   },
-  logDuration: {
-    fontSize: 12,
-    color: '#9CA3AF',
-    fontVariant: ['tabular-nums'],
+  actionCardArrow: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#10B981',
   },
 });

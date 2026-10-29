@@ -22,7 +22,11 @@ const SYNTAX_TIPS = [
 // In-memory cache for instant user rules editor rendering
 let cachedUserRules = '';
 
-export const UserRulesScreen: React.FC = () => {
+interface UserRulesScreenProps {
+  isNested?: boolean;
+}
+
+export const UserRulesScreen: React.FC<UserRulesScreenProps> = ({ isNested = false }) => {
   const [rules, setRules] = useState<string>(cachedUserRules);
   const [isSaving, setIsSaving] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
@@ -71,8 +75,10 @@ export const UserRulesScreen: React.FC = () => {
       return trimmed.length > 0 && !trimmed.startsWith('!') && !trimmed.startsWith('#');
     }).length;
 
+  const Container = isNested ? View : SafeAreaView;
+
   return (
-    <SafeAreaView style={styles.container}>
+    <Container style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Title & Count */}
         <View style={styles.headerRow}>
@@ -178,7 +184,7 @@ export const UserRulesScreen: React.FC = () => {
           </Text>
         </TouchableOpacity>
       </ScrollView>
-    </SafeAreaView>
+    </Container>
   );
 };
 
