@@ -1,14 +1,18 @@
-import React, { useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   ScrollView,
   View,
   Text,
   Switch,
+  TouchableOpacity,
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useAdGuardVpn } from '../hooks/useAdGuardVpn';
+import { AdGuardVpn } from '../native/AdGuardVpnModule';
+import { ShieldAuditModal } from '../components/ShieldAuditModal';
+import { authenticateWithBiometrics } from '../utils/security';
 
 interface DashboardScreenProps {
   isActive?: boolean;
@@ -18,6 +22,21 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
   isActive = true,
 }) => {
   const { isRunning, stats, toggleVpn } = useAdGuardVpn(isActive);
+  const [auditModalVisible, setAuditModalVisible] = useState(false);
+
+  const handleToggleVpn = async () => {
+    if (isRunning) {
+      // User is attempting to pause protection
+      try {
+        const isLocked = await AdGuardVpn.isParentalLockEnabled();
+        if (isLocked) {
+          const ok = await authenticateWithBiometrics('Verify identity with Biometrics to pause protection');
+          if (!ok) return;
+        }
+      } catch (e) {}
+    }
+    toggleVpn();
+  };
 
   const dataSavedFormatted = useMemo(() => {
     return stats.dataSavedBytes > 1024 * 1024
@@ -66,7 +85,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
           </View>
           <Switch
             value={isRunning}
-            onValueChange={toggleVpn}
+            onValueChange={handleToggleVpn}
             trackColor={{ false: '#D1D5DB', true: '#6EE7B7' }}
             thumbColor={isRunning ? '#10B981' : '#F3F4F6'}
             style={styles.switchControl}
@@ -105,6 +124,24 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
             <Text style={styles.statLabel}>Block Ratio</Text>
           </View>
         </View>
+
+        {/* Diagnostic Security & Leak Audit Button */}
+        <TouchableOpacity
+          style={styles.auditCard}
+          activeOpacity={0.8}
+          onPress={() => setAuditModalVisible(true)}
+        >
+          <View style={styles.auditCardLeft}>
+            <Text style={styles.auditCardIcon}>🛡️</Text>
+            <View style={styles.auditCardTextContainer}>
+              <Text style={styles.auditCardTitle}>Run Security & Leak Audit</Text>
+              <Text style={styles.auditCardSubtitle}>
+                Test 7 threat vectors to verify filter engine integrity
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.auditCardArrow}>→</Text>
+        </TouchableOpacity>
 
         {/* Protection Details Card */}
         <View style={styles.infoCard}>
@@ -161,6 +198,12 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
           </Text>
         </View>
       </ScrollView>
+
+      {/* Security & Leak Audit Diagnostic Modal */}
+      <ShieldAuditModal
+        visible={auditModalVisible}
+        onClose={() => setAuditModalVisible(false)}
+      />
     </SafeAreaView>
   );
 };
@@ -336,5 +379,47 @@ const styles = StyleSheet.create({
   },
   tipBold: {
     fontWeight: '700',
+  },
+  auditCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#0F172A',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 14,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  auditCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 12,
+  },
+  auditCardIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  auditCardTextContainer: {
+    flex: 1,
+  },
+  auditCardTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#F8FAFC',
+  },
+  auditCardSubtitle: {
+    fontSize: 12,
+    color: '#94A3B8',
+    marginTop: 2,
+  },
+  auditCardArrow: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#10B981',
   },
 });

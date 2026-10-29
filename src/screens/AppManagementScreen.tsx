@@ -144,6 +144,24 @@ export const AppManagementScreen: React.FC = () => {
         </View>
       </View>
 
+      {/* Privacy Scorecard Banner */}
+      <View style={styles.scorecardBanner}>
+        <View style={styles.scorecardLeft}>
+          <Text style={styles.scorecardTitle}>App Privacy Scorecard</Text>
+          <Text style={styles.scorecardSubtitle}>
+            {apps.length - protectedCount === 0
+              ? 'All applications safely routed through local DNS filter'
+              : `${apps.length - protectedCount} app(s) currently bypass ad blocking`}
+          </Text>
+        </View>
+        <View style={styles.scorecardPill}>
+          <Text style={styles.scorecardRatio}>
+            {apps.length > 0 ? Math.round((protectedCount / apps.length) * 100) : 100}%
+          </Text>
+          <Text style={styles.scorecardRating}>Protected</Text>
+        </View>
+      </View>
+
       {/* Search Input */}
       <TextInput
         style={styles.searchInput}
@@ -284,6 +302,49 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6B7280',
     marginTop: 2,
+  },
+  scorecardBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+  },
+  scorecardLeft: {
+    flex: 1,
+    marginRight: 10,
+  },
+  scorecardTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#065F46',
+  },
+  scorecardSubtitle: {
+    fontSize: 11,
+    color: '#047857',
+    marginTop: 2,
+  },
+  scorecardPill: {
+    backgroundColor: '#10B981',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    alignItems: 'center',
+  },
+  scorecardRatio: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  scorecardRating: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#D1FAE5',
+    textTransform: 'uppercase',
   },
   searchInput: {
     height: 42,

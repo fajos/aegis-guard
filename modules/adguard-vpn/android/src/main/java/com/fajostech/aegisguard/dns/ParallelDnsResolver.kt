@@ -109,4 +109,50 @@ class ParallelDnsResolver(
             try { socket?.close() } catch (e: Exception) {}
         }
     }
+
+    fun measureLatency(server: String): Long {
+        if (server == "198.18.53.53" || server == "127.0.0.1" || server == "0.0.0.0" || server.isBlank()) return -1L
+        var socket: DatagramSocket? = null
+        return try {
+            socket = DatagramSocket()
+            val protected = vpnService?.protect(socket) ?: true
+            if (!protected) {
+                socket.close()
+                return -1L
+            }
+            socket.soTimeout = 1800
+
+            // Standard DNS query for "example.com" (IN A, TXID 0x1234)
+            val testQuery = byteArrayOf(
+                0x12, 0x34, // Transaction ID
+                0x01, 0x00, // Flags: Standard query, RD
+                0x00, 0x01, // Questions: 1
+                0x00, 0x00, // Answer RRs: 0
+                0x00, 0x00, // Authority RRs: 0
+                0x00, 0x00, // Additional RRs: 0
+                0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, // "example"
+                0x03, 0x63, 0x6f, 0x6d, // "com"
+                0x00,       // Root
+                0x00, 0x01, // Type: A
+                0x00, 0x01  // Class: IN
+            )
+
+            val serverAddr = InetAddress.getByName(server)
+            val outPacket = DatagramPacket(testQuery, testQuery.size, serverAddr, 53)
+
+            val startNano = System.nanoTime()
+            socket.send(outPacket)
+
+            val inBuffer = ByteArray(512)
+            val inPacket = DatagramPacket(inBuffer, inBuffer.size)
+            socket.receive(inPacket)
+            val elapsedMs = (System.nanoTime() - startNano) / 1_000_000L
+
+            if (elapsedMs < 1L) 1L else elapsedMs
+        } catch (e: Exception) {
+            -1L
+        } finally {
+            try { socket?.close() } catch (e: Exception) {}
+        }
+    }
 }

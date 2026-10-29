@@ -43,6 +43,20 @@ export interface DnsConfiguration {
   virtualDnsServer: string;
 }
 
+export interface DnsBenchmarkResult {
+  server: string;
+  latencyMs: number;
+  isOnline: boolean;
+}
+
+export interface DomainFilterTestResult {
+  domain: string;
+  isBlocked: boolean;
+  matchedRule: string;
+  isRewrite: boolean;
+  rewriteIp: string;
+}
+
 export interface AdGuardVpnInterface {
   isRunning(): Promise<boolean>;
   startVpn(): Promise<boolean>;
@@ -60,6 +74,12 @@ export interface AdGuardVpnInterface {
   clearQueryLogs(): Promise<boolean>;
   getDnsSettings(): Promise<DnsConfiguration>;
   setDnsSettings(upstreamServers: string[], blockingModeStr: string): Promise<boolean>;
+  benchmarkDnsServers(servers: string[]): Promise<DnsBenchmarkResult[]>;
+  setSafeSearchEnabled(enabled: boolean): Promise<boolean>;
+  isSafeSearchEnabled(): Promise<boolean>;
+  setParentalLockEnabled(enabled: boolean): Promise<boolean>;
+  isParentalLockEnabled(): Promise<boolean>;
+  testDomainFilter(domain: string): Promise<DomainFilterTestResult>;
 }
 
 const { AdGuardVpnModule } = NativeModules;

@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { DnsSettingsScreen } from './DnsSettingsScreen';
 import { UserRulesScreen } from './UserRulesScreen';
+import { FamilySecuritySection } from '../components/FamilySecuritySection';
 
-export type SettingsSubTab = 'dns' | 'rules';
+export type SettingsSubTab = 'dns' | 'rules' | 'security';
 
 interface SettingsScreenProps {
   initialSubTab?: SettingsSubTab;
@@ -18,7 +19,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ initialSubTab = 
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Settings & Protection</Text>
         <Text style={styles.headerSubtitle}>
-          Configure upstream resolvers and custom rule syntax
+          Configure upstream resolvers, custom syntax, and family safety
         </Text>
 
         <View style={styles.segmentedContainer}>
@@ -27,8 +28,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ initialSubTab = 
             onPress={() => setActiveSubTab('dns')}
             activeOpacity={0.7}
           >
-            <Text style={[styles.segmentText, activeSubTab === 'dns' && styles.segmentTextActive]}>
-              🌐 DNS Upstreams
+            <Text
+              style={[styles.segmentText, activeSubTab === 'dns' && styles.segmentTextActive]}
+              numberOfLines={1}
+            >
+              🌐 DNS
             </Text>
           </TouchableOpacity>
 
@@ -37,8 +41,24 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ initialSubTab = 
             onPress={() => setActiveSubTab('rules')}
             activeOpacity={0.7}
           >
-            <Text style={[styles.segmentText, activeSubTab === 'rules' && styles.segmentTextActive]}>
-              ✏️ Custom Rules
+            <Text
+              style={[styles.segmentText, activeSubTab === 'rules' && styles.segmentTextActive]}
+              numberOfLines={1}
+            >
+              ✏️ Rules
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.segmentButton, activeSubTab === 'security' && styles.segmentButtonActive]}
+            onPress={() => setActiveSubTab('security')}
+            activeOpacity={0.7}
+          >
+            <Text
+              style={[styles.segmentText, activeSubTab === 'security' && styles.segmentTextActive]}
+              numberOfLines={1}
+            >
+              👨‍👩‍👧 Family
             </Text>
           </TouchableOpacity>
         </View>
@@ -48,8 +68,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ initialSubTab = 
       <View style={styles.content}>
         {activeSubTab === 'dns' ? (
           <DnsSettingsScreen isNested />
-        ) : (
+        ) : activeSubTab === 'rules' ? (
           <UserRulesScreen isNested />
+        ) : (
+          <FamilySecuritySection />
         )}
       </View>
     </View>

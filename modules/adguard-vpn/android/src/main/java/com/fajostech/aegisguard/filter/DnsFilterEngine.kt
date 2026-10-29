@@ -17,6 +17,9 @@ class DnsFilterEngine(
 ) {
     private val matcher = RuleMatcher()
 
+    var enableSafeSearch: Boolean = false
+    var enableFamilyFilter: Boolean = false
+
     val totalQueries = AtomicLong(0)
     val blockedQueries = AtomicLong(0)
     val allowedQueries = AtomicLong(0)
@@ -57,7 +60,23 @@ class DnsFilterEngine(
             )
         }
 
-        // 3. Match against filtering rules
+        // 3. SafeSearch VIP Enforcement
+        if (enableSafeSearch) {
+            val safeRewrite = getSafeSearchRewrite(domain)
+            if (safeRewrite != null) {
+                blockedQueries.incrementAndGet()
+                return EvaluationResult(
+                    isBlocked = true,
+                    isRewrite = true,
+                    domain = domain,
+                    rewriteIp = safeRewrite,
+                    ttl = 300L,
+                    matchedRule = "SafeSearch VIP Enforcement ($safeRewrite)"
+                )
+            }
+        }
+
+        // 4. Match against filtering rules
         return when (val match = matcher.match(domain)) {
             is RuleMatcher.MatchResult.Blocked -> {
                 blockedQueries.incrementAndGet()
@@ -185,6 +204,27 @@ class DnsFilterEngine(
         defaultRules.forEach { line ->
             AdBlockRule.parse(line)?.let { matcher.addRule(it) }
         }
+    }
+
+    private fun getSafeSearchRewrite(domain: String): String? {
+        val lower = domain.lowercase()
+        // Google SafeSearch: forcesafesearch.google.com -> 216.239.38.120
+        if (lower == "google.com" || lower.endsWith(".google.com") || lower.matches(Regex("^(www\\.)?google\\.[a-z.]+$"))) {
+            return "216.239.38.120"
+        }
+        // YouTube Restricted Mode: restrict.youtube.com -> 216.239.38.119
+        if (lower == "youtube.com" || lower.endsWith(".youtube.com") || lower == "m.youtube.com") {
+            return "216.239.38.119"
+        }
+        // Bing Strict SafeSearch: strict.bing.com -> 204.79.197.220
+        if (lower == "bing.com" || lower.endsWith(".bing.com")) {
+            return "204.79.197.220"
+        }
+        // DuckDuckGo SafeSearch: safe.duckduckgo.com -> 52.142.124.215
+        if (lower == "duckduckgo.com" || lower.endsWith(".duckduckgo.com")) {
+            return "52.142.124.215"
+        }
+        return null
     }
 
     data class EvaluationResult(

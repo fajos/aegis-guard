@@ -71,6 +71,10 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
                     blockingMode = savedMode ?: LocalVpnService.currentConfig.blockingMode
                 )
             }
+
+            // Restore SafeSearch state
+            val safeSearch = dnsPrefs.getBoolean("safe_search_enabled", false)
+            LocalVpnService.filterEngine.enableSafeSearch = safeSearch
         } catch (e: Exception) {}
 
         // Buffer and batch query logs to prevent flooding the React Native bridge
@@ -360,6 +364,71 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
             .apply()
 
         promise.resolve(true)
+    }
+
+    @ReactMethod
+    fun setSafeSearchEnabled(enabled: Boolean, promise: Promise) {
+        LocalVpnService.filterEngine.enableSafeSearch = enabled
+        dnsPrefs.edit().putBoolean("safe_search_enabled", enabled).apply()
+        promise.resolve(true)
+    }
+
+    @ReactMethod
+    fun isSafeSearchEnabled(promise: Promise) {
+        promise.resolve(LocalVpnService.filterEngine.enableSafeSearch)
+    }
+
+    @ReactMethod
+    fun setParentalLockEnabled(enabled: Boolean, promise: Promise) {
+        dnsPrefs.edit().putBoolean("parental_lock_enabled", enabled).apply()
+        promise.resolve(true)
+    }
+
+    @ReactMethod
+    fun isParentalLockEnabled(promise: Promise) {
+        val locked = dnsPrefs.getBoolean("parental_lock_enabled", false)
+        promise.resolve(locked)
+    }
+
+    @ReactMethod
+    fun benchmarkDnsServers(servers: ReadableArray, promise: Promise) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val resolver = com.fajostech.aegisguard.dns.ParallelDnsResolver()
+                val serverList = mutableListOf<String>()
+                for (i in 0 until servers.size()) {
+                    val s = servers.getString(i)
+                    if (!s.isNullOrBlank()) serverList.add(s)
+                }
+
+                val resultsArray = Arguments.createArray()
+                for (srv in serverList) {
+                    val latency = resolver.measureLatency(srv)
+                    val map = Arguments.createMap().apply {
+                        putString("server", srv)
+                        putDouble("latencyMs", if (latency > 0) latency.toDouble() else -1.0)
+                        putBoolean("isOnline", latency > 0)
+                    }
+                    resultsArray.pushMap(map)
+                }
+                promise.resolve(resultsArray)
+            } catch (e: Exception) {
+                promise.reject("BENCHMARK_ERROR", e.message)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun testDomainFilter(domain: String, promise: Promise) {
+        val eval = LocalVpnService.filterEngine.evaluate(domain.trim(), 1)
+        val map = Arguments.createMap().apply {
+            putString("domain", domain)
+            putBoolean("isBlocked", eval.isBlocked)
+            putString("matchedRule", eval.matchedRule ?: "")
+            putBoolean("isRewrite", eval.isRewrite)
+            putString("rewriteIp", eval.rewriteIp ?: "")
+        }
+        promise.resolve(map)
     }
 
     private fun launchVpnService() {

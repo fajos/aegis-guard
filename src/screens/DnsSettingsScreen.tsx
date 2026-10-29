@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AdGuardVpn } from '../native/AdGuardVpnModule';
@@ -52,6 +53,28 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
   const [selectedServers, setSelectedServers] = useState<string[]>(cachedServers);
   const [customServer, setCustomServer] = useState('');
   const [blockingMode, setBlockingMode] = useState<'ADDRESS' | 'NXDOMAIN' | 'REFUSED'>(cachedBlockingMode);
+  const [benchmarks, setBenchmarks] = useState<Record<string, number>>({});
+  const [isBenchmarking, setIsBenchmarking] = useState(false);
+
+  const handleRunSpeedTest = async () => {
+    setIsBenchmarking(true);
+    try {
+      if (!AdGuardVpn) return;
+      const allPrimaryServers = PRESET_PROVIDERS.map((p) => p.servers[0]);
+      const results = await AdGuardVpn.benchmarkDnsServers(allPrimaryServers);
+      const map: Record<string, number> = {};
+      results.forEach((r) => {
+        if (r.latencyMs > 0) {
+          map[r.server] = r.latencyMs;
+        }
+      });
+      setBenchmarks(map);
+    } catch (e) {
+      console.error('[DNS Benchmark] error:', e);
+    } finally {
+      setIsBenchmarking(false);
+    }
+  };
 
   useEffect(() => {
     (async () => {
@@ -149,10 +172,45 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
 
         {/* Presets */}
         <Text style={styles.sectionTitle}>Popular DNS Providers</Text>
+
+        {/* DNS Radar Card */}
+        <View style={styles.radarCard}>
+          <View style={styles.radarHeader}>
+            <Text style={styles.radarIcon}>⚡</Text>
+            <View style={styles.radarTextContainer}>
+              <Text style={styles.radarTitle}>DNS Radar Benchmark</Text>
+              <Text style={styles.radarSubtitle}>
+                Ping global resolvers directly from your connection to find the fastest
+              </Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={styles.radarButton}
+            onPress={handleRunSpeedTest}
+            disabled={isBenchmarking}
+            activeOpacity={0.8}
+          >
+            {isBenchmarking ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <Text style={styles.radarButtonText}>Run Real-Time Speed Test</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+
         {PRESET_PROVIDERS.map((preset) => {
           const isSelected =
             preset.servers.length === selectedServers.length &&
             preset.servers.every((s) => selectedServers.includes(s));
+
+          const primaryIp = preset.servers[0];
+          const latency = benchmarks[primaryIp];
+          const fastestServerIp = Object.entries(benchmarks).reduce<string | null>(
+            (fastest, [ip, l]) => (!fastest || l < (benchmarks[fastest] || 9999) ? ip : fastest),
+            null
+          );
+          const isFastest = fastestServerIp === primaryIp && latency > 0;
 
           return (
             <TouchableOpacity
@@ -161,9 +219,18 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
               onPress={() => handleSelectPreset(preset)}
             >
               <View style={styles.presetHeader}>
-                <Text style={[styles.presetName, isSelected && styles.presetNameSelected]}>
-                  {preset.name}
-                </Text>
+                <View style={styles.presetTitleRow}>
+                  <Text style={[styles.presetName, isSelected && styles.presetNameSelected]}>
+                    {preset.name}
+                  </Text>
+                  {latency !== undefined && latency > 0 && (
+                    <View style={[styles.pingBadge, isFastest && styles.fastestPingBadge]}>
+                      <Text style={[styles.pingText, isFastest && styles.fastestPingText]}>
+                        {isFastest ? '⚡ ' : ''}{latency.toFixed(0)} ms
+                      </Text>
+                    </View>
+                  )}
+                </View>
                 {isSelected && <Text style={styles.selectedBadge}>✓ ACTIVE</Text>}
               </View>
               <Text style={styles.presetDesc}>{preset.description}</Text>
@@ -389,5 +456,67 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '700',
+  },
+  radarCard: {
+    backgroundColor: '#1E293B',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+  },
+  radarHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  radarIcon: {
+    fontSize: 22,
+    marginRight: 10,
+  },
+  radarTextContainer: {
+    flex: 1,
+  },
+  radarTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#F8FAFC',
+  },
+  radarSubtitle: {
+    fontSize: 11,
+    color: '#94A3B8',
+    marginTop: 2,
+  },
+  radarButton: {
+    backgroundColor: '#10B981',
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radarButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  presetTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pingBadge: {
+    backgroundColor: '#E0E7FF',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  fastestPingBadge: {
+    backgroundColor: '#D1FAE5',
+  },
+  pingText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#3730A3',
+  },
+  fastestPingText: {
+    color: '#065F46',
   },
 });
