@@ -218,10 +218,16 @@ function withAdguardAppBuildGradle(config) {
 }
 
 function withAdguardIos(config) {
+  // Only inject NetworkExtension & AppGroup entitlements if explicitly configured
+  // to avoid Apple codesigning failures on accounts without active capability provisioning.
   if (!withEntitlementsPlist) return config;
   return withEntitlementsPlist(config, (config) => {
-    config.modResults['com.apple.developer.networking.networkextension'] = ['packet-tunnel'];
-    config.modResults['com.apple.security.application-groups'] = ['group.com.fajostech.aegisguard'];
+    if (config.ios?.entitlements?.['com.apple.developer.networking.networkextension']) {
+      config.modResults['com.apple.developer.networking.networkextension'] = ['packet-tunnel'];
+    }
+    if (config.ios?.entitlements?.['com.apple.security.application-groups']) {
+      config.modResults['com.apple.security.application-groups'] = ['group.com.fajostech.aegisguard'];
+    }
     return config;
   });
 }
