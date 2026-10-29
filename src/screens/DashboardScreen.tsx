@@ -133,15 +133,17 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
             style={styles.systemShieldCard}
             activeOpacity={0.8}
             onPress={() => {
-              Linking.openURL('https://adguard-dns.io/en/public-dns.html');
+              Linking.openURL(
+                'https://github.com/paulmillr/encrypted-dns/raw/master/signed/adguard-default-https.mobileconfig'
+              );
             }}
           >
             <View style={styles.systemShieldLeft}>
               <Text style={styles.systemShieldIcon}>⚡</Text>
               <View style={styles.systemShieldTextContainer}>
-                <Text style={styles.systemShieldTitle}>Block Ads in GSE IPTV & iOS Apps</Text>
+                <Text style={styles.systemShieldTitle}>Block Ads in GSE IPTV & Mobile Network</Text>
                 <Text style={styles.systemShieldSubtitle}>
-                  Download the official Apple DNS profile to eliminate popup ads across GSE IPTV, games, and Safari.
+                  Install the signed Apple DNS profile to block popup ads across GSE IPTV and apps on 4G/5G mobile data.
                 </Text>
               </View>
             </View>
