@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Alert,
   TouchableOpacity,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AdGuardVpn, AppManagementInfo } from '../native/AdGuardVpnModule';
@@ -22,6 +23,13 @@ export const AppManagementScreen: React.FC = () => {
   const [showSystemApps, setShowSystemApps] = useState(false);
   const [isLoading, setIsLoading] = useState(cachedApps.length === 0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Add custom app modal states
+  const [isAddModalVisible, setIsAddModalVisible] = useState(false);
+  const [newAppName, setNewAppName] = useState('');
+  const [newPackageName, setNewPackageName] = useState('');
+  const [newCustomDomains, setNewCustomDomains] = useState('');
+  const [newIsBypassed, setNewIsBypassed] = useState(true);
 
   const fetchApps = async (isManualRefresh = false) => {
     if (isManualRefresh) {
@@ -67,6 +75,46 @@ export const AppManagementScreen: React.FC = () => {
     }
   };
 
+  const handleAddCustomApp = async () => {
+    const name = newAppName.trim();
+    if (!name) {
+      Alert.alert('Required', 'Please enter a name for the game or app.');
+      return;
+    }
+
+    const pkg = newPackageName.trim() || `custom.${name.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+    const domains = newCustomDomains
+      .split(',')
+      .map((d) => d.trim().toLowerCase())
+      .filter((d) => d.length > 0);
+
+    const newApp: AppManagementInfo = {
+      appName: name,
+      packageName: pkg,
+      isSystemApp: false,
+      isFiltered: !newIsBypassed,
+      isVpnBypassed: newIsBypassed,
+    };
+
+    try {
+      if (AdGuardVpn.addCustomApp) {
+        await AdGuardVpn.addCustomApp(newApp, domains);
+      } else {
+        await AdGuardVpn.setAppBypass(pkg, newIsBypassed);
+      }
+      cachedApps = [newApp, ...cachedApps.filter((a) => a.packageName !== pkg)];
+      setApps(cachedApps);
+      setIsAddModalVisible(false);
+      setNewAppName('');
+      setNewPackageName('');
+      setNewCustomDomains('');
+      setNewIsBypassed(true);
+      Alert.alert('App Added', `"${name}" has been added to your app list.`);
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Failed to add custom app.');
+    }
+  };
+
   const filteredApps = useMemo(() => {
     return apps.filter((app) => {
       if (!showSystemApps && app.isSystemApp) return false;
@@ -103,10 +151,6 @@ export const AppManagementScreen: React.FC = () => {
       cachedApps = updater(cachedApps);
       setApps(updater);
 
-      console.log(
-        `[AppManagement] ${shouldProtectAll ? 'Protecting' : 'Bypassing'} ${filteredApps.length} apps`
-      );
-
       // 2. Persist to native layer in background
       for (const app of filteredApps) {
         if (app.isVpnBypassed !== shouldBypass) {
@@ -125,47 +169,50 @@ export const AppManagementScreen: React.FC = () => {
       <View style={styles.header}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.title}>App Management</Text>
+            <Text style={styles.title}>Game & App Exclusions</Text>
             <Text style={styles.subtitle}>
-              Configure split-tunneling per application ({protectedCount} protected)
+              Configure split-tunneling & exclusions ({protectedCount} protected)
             </Text>
           </View>
-          <TouchableOpacity
-            style={styles.rescanButton}
-            onPress={() => fetchApps(true)}
-            activeOpacity={0.7}
-          >
-            {isRefreshing ? (
-              <ActivityIndicator size="small" color="#10B981" />
-            ) : (
-              <Text style={styles.rescanButtonText}>Rescan</Text>
-            )}
-          </TouchableOpacity>
+          <View style={styles.headerButtons}>
+            <TouchableOpacity
+              style={styles.addButton}
+              onPress={() => setIsAddModalVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.addButtonText}>+ Add</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.rescanButton}
+              onPress={() => fetchApps(true)}
+              activeOpacity={0.7}
+            >
+              {isRefreshing ? (
+                <ActivityIndicator size="small" color="#10B981" />
+              ) : (
+                <Text style={styles.rescanButtonText}>Rescan</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
-      {/* Privacy Scorecard Banner */}
-      <View style={styles.scorecardBanner}>
-        <View style={styles.scorecardLeft}>
-          <Text style={styles.scorecardTitle}>App Privacy Scorecard</Text>
-          <Text style={styles.scorecardSubtitle}>
-            {apps.length - protectedCount === 0
-              ? 'All applications safely routed through local DNS filter'
-              : `${apps.length - protectedCount} app(s) currently bypass ad blocking`}
+      {/* Guide Banner */}
+      <View style={styles.guideBanner}>
+        <Text style={styles.guideIcon}>🎮</Text>
+        <View style={styles.guideTextContainer}>
+          <Text style={styles.guideTitle}>Game & Rewarded Ad Exclusions Active</Text>
+          <Text style={styles.guideSubtitle}>
+            Excluded games (switch OFF) have their online servers and rewarded ads bypass DNS blocking.
+            Protected apps (switch ON, e.g. GSE IPTV) have all video & popup ads eliminated.
           </Text>
-        </View>
-        <View style={styles.scorecardPill}>
-          <Text style={styles.scorecardRatio}>
-            {apps.length > 0 ? Math.round((protectedCount / apps.length) * 100) : 100}%
-          </Text>
-          <Text style={styles.scorecardRating}>Protected</Text>
         </View>
       </View>
 
       {/* Search Input */}
       <TextInput
         style={styles.searchInput}
-        placeholder="Search apps by name or package..."
+        placeholder="Search games & apps by name or package..."
         placeholderTextColor="#9CA3AF"
         value={search}
         onChangeText={setSearch}
@@ -209,7 +256,7 @@ export const AppManagementScreen: React.FC = () => {
       {isLoading ? (
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color="#10B981" />
-          <Text style={styles.loadingText}>Scanning installed applications...</Text>
+          <Text style={styles.loadingText}>Loading applications & game rules...</Text>
         </View>
       ) : (
         <FlatList
@@ -234,6 +281,11 @@ export const AppManagementScreen: React.FC = () => {
                       <Text style={styles.systemBadgeText}>SYSTEM</Text>
                     </View>
                   )}
+                  {item.isVpnBypassed && (
+                    <View style={styles.excludedBadge}>
+                      <Text style={styles.excludedBadgeText}>EXCLUDED</Text>
+                    </View>
+                  )}
                 </View>
                 <Text style={styles.packageName} numberOfLines={1}>
                   {item.packageName}
@@ -241,10 +293,12 @@ export const AppManagementScreen: React.FC = () => {
                 <Text
                   style={[
                     styles.statusTag,
-                    { color: item.isVpnBypassed ? '#EF4444' : '#10B981' },
+                    { color: item.isVpnBypassed ? '#D97706' : '#059669' },
                   ]}
                 >
-                  {item.isVpnBypassed ? 'Traffic Bypasses VPN' : 'Traffic Filtered by AdGuard'}
+                  {item.isVpnBypassed
+                    ? '⚡ Excluded from DNS Blocking (Rewarded Ads Active)'
+                    : '🛡️ Protected by Aegis Guard (Ads Blocked)'}
                 </Text>
               </View>
 
@@ -258,6 +312,77 @@ export const AppManagementScreen: React.FC = () => {
           )}
         />
       )}
+
+      {/* Add Custom Game / App Modal */}
+      <Modal
+        visible={isAddModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsAddModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Add Game or App Exclusion</Text>
+            <Text style={styles.modalSubtitle}>
+              Exclude games so their online servers and rewarded video ads work without restriction.
+            </Text>
+
+            <Text style={styles.inputLabel}>Game / App Name *</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="e.g. Injustice 2, 8 Ball Pool, Roblox"
+              placeholderTextColor="#9CA3AF"
+              value={newAppName}
+              onChangeText={setNewAppName}
+            />
+
+            <Text style={styles.inputLabel}>Bundle / Package ID (Optional)</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="e.g. com.developer.game"
+              placeholderTextColor="#9CA3AF"
+              value={newPackageName}
+              onChangeText={setNewPackageName}
+              autoCapitalize="none"
+            />
+
+            <Text style={styles.inputLabel}>Custom Domains to Bypass (Comma-separated)</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="e.g. unityads.unity3d.com, applvr.com"
+              placeholderTextColor="#9CA3AF"
+              value={newCustomDomains}
+              onChangeText={setNewCustomDomains}
+              autoCapitalize="none"
+            />
+
+            <View style={styles.modalSwitchRow}>
+              <Text style={styles.modalSwitchLabel}>Exclude from DNS Blocking</Text>
+              <Switch
+                value={newIsBypassed}
+                onValueChange={setNewIsBypassed}
+                trackColor={{ false: '#D1D5DB', true: '#FDE68A' }}
+                thumbColor={newIsBypassed ? '#F59E0B' : '#F3F4F6'}
+              />
+            </View>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setIsAddModalVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.saveButton}
+                onPress={handleAddCustomApp}
+              >
+                <Text style={styles.saveButtonText}>Add Game</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -276,6 +401,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  addButton: {
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginRight: 6,
+  },
+  addButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   rescanButton: {
     backgroundColor: '#ECFDF5',
@@ -303,48 +444,33 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     marginTop: 2,
   },
-  scorecardBanner: {
+  guideBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#ECFDF5',
+    backgroundColor: '#FFFBEB',
     borderWidth: 1,
-    borderColor: '#A7F3D0',
+    borderColor: '#FDE68A',
     borderRadius: 12,
     padding: 12,
     marginBottom: 10,
   },
-  scorecardLeft: {
-    flex: 1,
+  guideIcon: {
+    fontSize: 24,
     marginRight: 10,
   },
-  scorecardTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#065F46',
+  guideTextContainer: {
+    flex: 1,
   },
-  scorecardSubtitle: {
+  guideTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#92400E',
+  },
+  guideSubtitle: {
     fontSize: 11,
-    color: '#047857',
+    color: '#B45309',
     marginTop: 2,
-  },
-  scorecardPill: {
-    backgroundColor: '#10B981',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    alignItems: 'center',
-  },
-  scorecardRatio: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#FFFFFF',
-  },
-  scorecardRating: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#D1FAE5',
-    textTransform: 'uppercase',
+    lineHeight: 15,
   },
   searchInput: {
     height: 42,
@@ -445,7 +571,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#111827',
-    maxWidth: '80%',
+    maxWidth: '75%',
   },
   systemBadge: {
     backgroundColor: '#F3F4F6',
@@ -459,6 +585,18 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#6B7280',
   },
+  excludedBadge: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+    marginLeft: 6,
+  },
+  excludedBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#D97706',
+  },
   packageName: {
     fontSize: 11,
     color: '#6B7280',
@@ -468,5 +606,87 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     marginTop: 4,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    elevation: 5,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  modalSubtitle: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 4,
+    marginBottom: 16,
+    lineHeight: 16,
+  },
+  inputLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#374151',
+    marginBottom: 4,
+  },
+  modalInput: {
+    height: 42,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    fontSize: 13,
+    color: '#111827',
+    marginBottom: 12,
+  },
+  modalSwitchRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginVertical: 10,
+    paddingVertical: 6,
+  },
+  modalSwitchLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 16,
+  },
+  cancelButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginRight: 8,
+  },
+  cancelButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#6B7280',
+  },
+  saveButton: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  saveButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });

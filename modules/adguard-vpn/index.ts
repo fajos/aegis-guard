@@ -81,7 +81,35 @@ export interface AdGuardVpnInterface {
   setParentalLockEnabled(enabled: boolean): Promise<boolean>;
   isParentalLockEnabled(): Promise<boolean>;
   testDomainFilter(domain: string): Promise<DomainFilterTestResult>;
+  setExcludedDomains(domains: string[]): Promise<boolean>;
+  addCustomApp(app: AppManagementInfo, domains?: string[]): Promise<boolean>;
 }
+
+export const KNOWN_APP_DOMAINS: Record<string, string[]> = {
+  'com.wb.injustice2': [
+    'wbgames.com',
+    'injustice2mobile.com',
+    'wb.com',
+    'hydra.wbgames.com',
+    'unityads.unity3d.com',
+    'applvr.com',
+    'applovin.com',
+    'ironsrc.com',
+  ],
+  'com.miniclip.eightballpool': [
+    'miniclip.com',
+    'mc-game-services.miniclip.com',
+    'game-analytics.miniclip.com',
+    'unityads.unity3d.com',
+    'applvr.com',
+    'applovin.com',
+    'ironsrc.com',
+    'vungle.com',
+  ],
+  'com.roblox.robloxmobile': ['roblox.com', 'rbxcdn.com'],
+  'com.kiloo.subwaysurf': ['sybogames.com', 'unityads.unity3d.com', 'applvr.com', 'ironsrc.com'],
+  'com.king.candycrushsaga': ['king.com', 'midas.king.com', 'unityads.unity3d.com', 'applvr.com'],
+};
 
 // ---------------------------------------------------------
 // Storage Keys for Bulletproof Persistence Across App Restarts
@@ -96,6 +124,7 @@ const STORAGE_KEYS = {
   DNS: '@aegis_vpn_dns_config',
   SAFE_SEARCH: '@aegis_vpn_safesearch',
   PARENTAL_LOCK: '@aegis_vpn_parental_lock',
+  CUSTOM_DOMAINS: '@aegis_vpn_app_custom_domains',
 };
 
 // ---------------------------------------------------------
@@ -224,7 +253,15 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
     },
   ];
 
+  private appCustomDomains: Record<string, string[]> = {};
+
   private apps: AppManagementInfo[] = [
+    { appName: 'Injustice 2', packageName: 'com.wb.injustice2', isSystemApp: false, isFiltered: false, isVpnBypassed: true },
+    { appName: '8 Ball Pool', packageName: 'com.miniclip.eightballpool', isSystemApp: false, isFiltered: false, isVpnBypassed: true },
+    { appName: 'GSE Smart IPTV', packageName: 'com.droidpro.gseiptv', isSystemApp: false, isFiltered: true, isVpnBypassed: false },
+    { appName: 'Roblox', packageName: 'com.roblox.robloxmobile', isSystemApp: false, isFiltered: true, isVpnBypassed: false },
+    { appName: 'Subway Surfers', packageName: 'com.kiloo.subwaysurf', isSystemApp: false, isFiltered: true, isVpnBypassed: false },
+    { appName: 'Candy Crush Saga', packageName: 'com.king.candycrushsaga', isSystemApp: false, isFiltered: true, isVpnBypassed: false },
     { appName: 'Safari', packageName: 'com.apple.mobilesafari', isSystemApp: true, isFiltered: true, isVpnBypassed: false },
     { appName: 'App Store', packageName: 'com.apple.AppStore', isSystemApp: true, isFiltered: true, isVpnBypassed: false },
     { appName: 'Mail', packageName: 'com.apple.mobilemail', isSystemApp: true, isFiltered: true, isVpnBypassed: false },
@@ -322,6 +359,7 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
             storedDns,
             storedSafeSearch,
             storedLock,
+            storedCustomDomains,
           ] = await Promise.all([
             AsyncStorage.getItem(STORAGE_KEYS.IS_RUNNING),
             AsyncStorage.getItem(STORAGE_KEYS.STATS),
@@ -332,6 +370,7 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
             AsyncStorage.getItem(STORAGE_KEYS.DNS),
             AsyncStorage.getItem(STORAGE_KEYS.SAFE_SEARCH),
             AsyncStorage.getItem(STORAGE_KEYS.PARENTAL_LOCK),
+            AsyncStorage.getItem(STORAGE_KEYS.CUSTOM_DOMAINS),
           ]);
 
           if (storedRunning !== null) {
@@ -354,7 +393,20 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
           }
           if (storedApps) {
             try {
-              this.apps = JSON.parse(storedApps);
+              const loadedApps: AppManagementInfo[] = JSON.parse(storedApps);
+              // Ensure default games are present even if an older cached list was saved
+              const mergedApps = [...loadedApps];
+              for (const defaultApp of this.apps) {
+                if (!mergedApps.some((a) => a.packageName === defaultApp.packageName)) {
+                  mergedApps.push(defaultApp);
+                }
+              }
+              this.apps = mergedApps;
+            } catch (e) {}
+          }
+          if (storedCustomDomains) {
+            try {
+              this.appCustomDomains = JSON.parse(storedCustomDomains);
             } catch (e) {}
           }
           if (storedLogs) {
@@ -373,6 +425,10 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
           if (storedLock !== null) {
             this.parentalLock = storedLock === 'true';
           }
+
+          // Sync excluded domains to native iOS/Android layer
+          const excluded = this.getActiveExcludedDomains();
+          this.setExcludedDomains(excluded).catch(() => {});
 
           if (this.running) {
             this.startSimulationTimer();
@@ -520,6 +576,46 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
     return stats.ruleCount;
   }
 
+  public getActiveExcludedDomains(): string[] {
+    const domainSet = new Set<string>();
+    for (const app of this.apps) {
+      if (app.isVpnBypassed) {
+        const domains = this.appCustomDomains[app.packageName] || KNOWN_APP_DOMAINS[app.packageName] || [];
+        domains.forEach((d) => domainSet.add(d));
+      }
+    }
+    return Array.from(domainSet);
+  }
+
+  async setExcludedDomains(domains: string[]): Promise<boolean> {
+    if (resolvedNativeModule && typeof resolvedNativeModule.setExcludedDomains === 'function') {
+      try {
+        await resolvedNativeModule.setExcludedDomains(domains);
+      } catch (e) {
+        console.warn('[AdGuardVpn] Error calling native setExcludedDomains:', e);
+      }
+    }
+    return true;
+  }
+
+  async addCustomApp(app: AppManagementInfo, domains?: string[]): Promise<boolean> {
+    await this.ensureInitialized();
+    const existingIndex = this.apps.findIndex((a) => a.packageName === app.packageName);
+    if (existingIndex >= 0) {
+      this.apps[existingIndex] = { ...this.apps[existingIndex], ...app };
+    } else {
+      this.apps.unshift(app);
+    }
+    if (domains && domains.length > 0) {
+      this.appCustomDomains[app.packageName] = domains;
+      AsyncStorage.setItem(STORAGE_KEYS.CUSTOM_DOMAINS, JSON.stringify(this.appCustomDomains)).catch(() => {});
+    }
+    AsyncStorage.setItem(STORAGE_KEYS.APPS, JSON.stringify(this.apps)).catch(() => {});
+    const activeDomains = this.getActiveExcludedDomains();
+    await this.setExcludedDomains(activeDomains);
+    return true;
+  }
+
   async getInstalledApps(): Promise<AppManagementInfo[]> {
     await this.ensureInitialized();
     return [...this.apps];
@@ -530,7 +626,10 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
     const app = this.apps.find((a) => a.packageName === packageName);
     if (app) {
       app.isVpnBypassed = bypass;
+      app.isFiltered = !bypass;
       AsyncStorage.setItem(STORAGE_KEYS.APPS, JSON.stringify(this.apps)).catch(() => {});
+      const activeDomains = this.getActiveExcludedDomains();
+      await this.setExcludedDomains(activeDomains);
       return true;
     }
     return false;
@@ -668,7 +767,21 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
       }
     }
 
-    // 2. Block List vectors
+    // 2. Excluded Games and Apps Check
+    const activeExclusions = this.getActiveExcludedDomains();
+    for (const excl of activeExclusions) {
+      if (d.endsWith(excl.toLowerCase())) {
+        return {
+          domain,
+          isBlocked: false,
+          matchedRule: `@@||${excl}^$game-exception`,
+          isRewrite: false,
+          rewriteIp: '',
+        };
+      }
+    }
+
+    // 3. Block List vectors
     const blockKeywords = [
       'doubleclick',
       'google-analytics',
