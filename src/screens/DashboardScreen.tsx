@@ -133,9 +133,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
             style={styles.systemShieldCard}
             activeOpacity={0.8}
             onPress={() => {
-              Linking.openURL(
-                'https://raw.githubusercontent.com/paulmillr/encrypted-dns/master/profiles/adguard-default-https.mobileconfig'
-              );
+              Linking.openURL('https://adguard-dns.io/en/public-dns.html');
             }}
           >
             <View style={styles.systemShieldLeft}>
@@ -143,7 +141,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
               <View style={styles.systemShieldTextContainer}>
                 <Text style={styles.systemShieldTitle}>Block Ads in GSE IPTV & iOS Apps</Text>
                 <Text style={styles.systemShieldSubtitle}>
-                  Install Apple System DNS Shield to stop interstitial video & popup ads across GSE IPTV, games, and Safari.
+                  Download the official Apple DNS profile to eliminate popup ads across GSE IPTV, games, and Safari.
                 </Text>
               </View>
             </View>
