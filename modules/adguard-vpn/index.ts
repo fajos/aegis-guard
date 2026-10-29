@@ -83,6 +83,8 @@ export interface AdGuardVpnInterface {
   testDomainFilter(domain: string): Promise<DomainFilterTestResult>;
   setExcludedDomains(domains: string[]): Promise<boolean>;
   addCustomApp(app: AppManagementInfo, domains?: string[]): Promise<boolean>;
+  setFamilyProtectionEnabled(enabled: boolean): Promise<boolean>;
+  isFamilyProtectionEnabled(): Promise<boolean>;
 }
 
 export const KNOWN_APP_DOMAINS: Record<string, string[]> = {
@@ -125,6 +127,7 @@ const STORAGE_KEYS = {
   SAFE_SEARCH: '@aegis_vpn_safesearch',
   PARENTAL_LOCK: '@aegis_vpn_parental_lock',
   CUSTOM_DOMAINS: '@aegis_vpn_app_custom_domains',
+  FAMILY_PROTECTION: '@aegis_vpn_family_protection',
 };
 
 // ---------------------------------------------------------
@@ -187,6 +190,7 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
   private tickCount = 0;
   private safeSearch = false;
   private parentalLock = false;
+  private familyProtection = false;
 
   private userRulesList: string[] = [
     '! Aegis Guard User Rules',
@@ -360,6 +364,7 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
             storedSafeSearch,
             storedLock,
             storedCustomDomains,
+            storedFamily,
           ] = await Promise.all([
             AsyncStorage.getItem(STORAGE_KEYS.IS_RUNNING),
             AsyncStorage.getItem(STORAGE_KEYS.STATS),
@@ -371,6 +376,7 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
             AsyncStorage.getItem(STORAGE_KEYS.SAFE_SEARCH),
             AsyncStorage.getItem(STORAGE_KEYS.PARENTAL_LOCK),
             AsyncStorage.getItem(STORAGE_KEYS.CUSTOM_DOMAINS),
+            AsyncStorage.getItem(STORAGE_KEYS.FAMILY_PROTECTION),
           ]);
 
           if (storedRunning !== null) {
@@ -425,10 +431,17 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
           if (storedLock !== null) {
             this.parentalLock = storedLock === 'true';
           }
+          if (storedFamily !== null) {
+            this.familyProtection = storedFamily === 'true';
+          }
 
           // Sync excluded domains to native iOS/Android layer
           const excluded = this.getActiveExcludedDomains();
           this.setExcludedDomains(excluded).catch(() => {});
+
+          if (this.familyProtection) {
+            this.setFamilyProtectionEnabled(true).catch(() => {});
+          }
 
           if (this.running) {
             this.startSimulationTimer();
@@ -723,6 +736,25 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
     return this.parentalLock;
   }
 
+  async setFamilyProtectionEnabled(enabled: boolean): Promise<boolean> {
+    await this.ensureInitialized();
+    this.familyProtection = enabled;
+    await AsyncStorage.setItem(STORAGE_KEYS.FAMILY_PROTECTION, String(enabled));
+    if (resolvedNativeModule && typeof resolvedNativeModule.setFamilyProtectionEnabled === 'function') {
+      try {
+        await resolvedNativeModule.setFamilyProtectionEnabled(enabled);
+      } catch (e) {
+        console.warn('[AdGuardVpn] Native setFamilyProtectionEnabled error:', e);
+      }
+    }
+    return true;
+  }
+
+  async isFamilyProtectionEnabled(): Promise<boolean> {
+    await this.ensureInitialized();
+    return this.familyProtection;
+  }
+
   async testDomainFilter(domain: string): Promise<DomainFilterTestResult> {
     await this.ensureInitialized();
     const d = domain.toLowerCase();
@@ -781,7 +813,36 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
       }
     }
 
-    // 3. Block List vectors
+    // 3. Adult Content & Explicit Domains (Family Shield)
+    if (this.familyProtection) {
+      const adultKeywords = [
+        'porn',
+        'xxx',
+        'xvideos',
+        'pornhub',
+        'redtube',
+        'youporn',
+        'chaturbate',
+        'cam4',
+        'onlyfans',
+        'erotic',
+        'adult',
+        'xhamster',
+        'spankbang',
+        'stripchat',
+      ];
+      if (adultKeywords.some((kw) => d.includes(kw))) {
+        return {
+          domain,
+          isBlocked: true,
+          matchedRule: `||${domain}^$family-adult-block`,
+          isRewrite: false,
+          rewriteIp: '0.0.0.0',
+        };
+      }
+    }
+
+    // 4. Block List vectors
     const blockKeywords = [
       'doubleclick',
       'google-analytics',

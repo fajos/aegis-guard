@@ -32,9 +32,12 @@ public class AdGuardVpnModule: Module {
           return
         }
 
-        // Configure system-wide Encrypted DNS (DoH) targeting AdGuard Ad-Blocking DNS
-        let dohSettings = NEDNSOverHTTPSSettings(servers: ["94.140.14.14", "94.140.15.15"])
-        dohSettings.serverURL = URL(string: "https://dns.adguard-dns.com/dns-query")
+        let isFamily = UserDefaults.standard.bool(forKey: "aegis_family_protection")
+        let servers = isFamily ? ["94.140.14.15", "94.140.15.16"] : ["94.140.14.14", "94.140.15.15"]
+        let dohURL = isFamily ? "https://dns-family.adguard-dns.com/dns-query" : "https://dns.adguard-dns.com/dns-query"
+
+        let dohSettings = NEDNSOverHTTPSSettings(servers: servers)
+        dohSettings.serverURL = URL(string: dohURL)
 
         manager.localizedDescription = "Aegis Guard DNS"
         manager.dnsSettings = dohSettings
@@ -114,6 +117,38 @@ public class AdGuardVpnModule: Module {
           rules.append(connectRule)
 
           manager.onDemandRules = rules
+          manager.saveToPreferences { _ in
+            promise.resolve(true)
+          }
+        } else {
+          promise.resolve(true)
+        }
+      }
+    }
+
+    AsyncFunction("isFamilyProtectionEnabled") { (promise: Promise) in
+      let isFamily = UserDefaults.standard.bool(forKey: "aegis_family_protection")
+      promise.resolve(isFamily)
+    }
+
+    AsyncFunction("setFamilyProtectionEnabled") { (enabled: Bool, promise: Promise) in
+      UserDefaults.standard.set(enabled, forKey: "aegis_family_protection")
+
+      let manager = NEDNSSettingsManager.shared()
+      manager.loadFromPreferences { loadError in
+        guard loadError == nil else {
+          promise.resolve(true)
+          return
+        }
+
+        let servers = enabled ? ["94.140.14.15", "94.140.15.16"] : ["94.140.14.14", "94.140.15.15"]
+        let dohURL = enabled ? "https://dns-family.adguard-dns.com/dns-query" : "https://dns.adguard-dns.com/dns-query"
+
+        let dohSettings = NEDNSOverHTTPSSettings(servers: servers)
+        dohSettings.serverURL = URL(string: dohURL)
+        manager.dnsSettings = dohSettings
+
+        if manager.isEnabled {
           manager.saveToPreferences { _ in
             promise.resolve(true)
           }

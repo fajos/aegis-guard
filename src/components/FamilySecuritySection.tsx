@@ -11,6 +11,7 @@ import { AdGuardVpn } from '../native/AdGuardVpnModule';
 import { authenticateWithBiometrics } from '../utils/security';
 
 export const FamilySecuritySection: React.FC = () => {
+  const [familyProtectionEnabled, setFamilyProtectionEnabled] = useState(false);
   const [safeSearchEnabled, setSafeSearchEnabled] = useState(false);
   const [parentalLockEnabled, setParentalLockEnabled] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -19,12 +20,14 @@ export const FamilySecuritySection: React.FC = () => {
     (async () => {
       try {
         if (!AdGuardVpn) return;
-        const [safe, locked] = await Promise.all([
+        const [safe, locked, family] = await Promise.all([
           AdGuardVpn.isSafeSearchEnabled(),
           AdGuardVpn.isParentalLockEnabled(),
+          AdGuardVpn.isFamilyProtectionEnabled(),
         ]);
         setSafeSearchEnabled(safe);
         setParentalLockEnabled(locked);
+        setFamilyProtectionEnabled(family);
       } catch (e) {
         console.error('[FamilySecurity] load error:', e);
       } finally {
@@ -32,6 +35,31 @@ export const FamilySecuritySection: React.FC = () => {
       }
     })();
   }, []);
+
+  const handleToggleFamilyProtection = async (newValue: boolean) => {
+    // If turning OFF, strictly require biometric authentication
+    if (!newValue) {
+      const ok = await authenticateWithBiometrics(
+        'Scan Face ID or Fingerprint to disable Adult Content Blocking'
+      );
+      if (!ok) {
+        return; // Retain current ON state
+      }
+    }
+
+    try {
+      await AdGuardVpn.setFamilyProtectionEnabled(newValue);
+      setFamilyProtectionEnabled(newValue);
+      Alert.alert(
+        newValue ? 'Adult Content Blocked' : 'Adult Content Unblocked',
+        newValue
+          ? 'AdGuard Family Protection is now active. All pornographic domains and adult websites are blocked across the entire device on both Cellular (4G/5G) and Wi-Fi.'
+          : 'Standard protection restored. Adult website filtering is now disabled.'
+      );
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Failed to update Adult Content filter');
+    }
+  };
 
   const handleToggleSafeSearch = async (newValue: boolean) => {
     if (parentalLockEnabled) {
@@ -81,14 +109,49 @@ export const FamilySecuritySection: React.FC = () => {
 
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.container}>
+      {/* Block Adult Content Card (Hero) */}
+      <View style={[styles.card, familyProtectionEnabled ? styles.cardFamilyActive : null]}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardIcon}>🔞</Text>
+          <View style={styles.cardHeaderText}>
+            <Text style={styles.cardTitle}>Block Adult & Explicit Websites</Text>
+            <Text style={styles.cardSubtitle}>
+              Biometric Protected • AdGuard Family Shield
+            </Text>
+          </View>
+          <Switch
+            value={familyProtectionEnabled}
+            onValueChange={handleToggleFamilyProtection}
+            trackColor={{ false: '#D1D5DB', true: '#6EE7B7' }}
+            thumbColor={familyProtectionEnabled ? '#10B981' : '#F3F4F6'}
+          />
+        </View>
+
+        <Text style={styles.cardDescription}>
+          Blocks access to all pornographic, adult, and explicit NSFW websites across the entire phone on both Wi-Fi and Cellular (4G/5G).
+        </Text>
+
+        <View style={styles.bulletList}>
+          <Text style={styles.bulletItem}>
+            • <Text style={styles.bulletBold}>Direct Domain Blocking:</Text> Direct browser visits to adult sites fail to load (0.0.0.0 sinkhole).
+          </Text>
+          <Text style={styles.bulletItem}>
+            • <Text style={styles.bulletBold}>SafeSearch Included:</Text> Automatically enforces strict SafeSearch across Google, Bing, DuckDuckGo, and YouTube.
+          </Text>
+          <Text style={styles.bulletItem}>
+            • <Text style={styles.bulletBold}>Biometric Lock:</Text> Requires Face ID, Touch ID, or Device PIN to turn off.
+          </Text>
+        </View>
+      </View>
+
       {/* SafeSearch Card */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardIcon}>🔍</Text>
           <View style={styles.cardHeaderText}>
-            <Text style={styles.cardTitle}>Enforce SafeSearch</Text>
+            <Text style={styles.cardTitle}>Enforce SafeSearch Only</Text>
             <Text style={styles.cardSubtitle}>
-              DNS-level restriction for adult queries & videos
+              Search engine query filtering
             </Text>
           </View>
           <Switch
@@ -100,7 +163,7 @@ export const FamilySecuritySection: React.FC = () => {
         </View>
 
         <Text style={styles.cardDescription}>
-          Automatically rewrites search engine queries to their official SafeSearch VIPs:
+          Filters explicit images and adult query suggestions from search engine results:
         </Text>
 
         <View style={styles.bulletList}>
@@ -130,14 +193,14 @@ export const FamilySecuritySection: React.FC = () => {
         </View>
 
         <Text style={styles.cardDescription}>
-          Prevents unauthorized changes. Anyone attempting to pause VPN protection, disable SafeSearch, or delete filter rules will be prompted for device biometric authentication.
+          Prevents unauthorized changes. Anyone attempting to pause protection or delete filter rules will be prompted for device biometric authentication.
         </Text>
       </View>
 
       {/* Info Card */}
       <View style={styles.infoBox}>
         <Text style={styles.infoBoxText}>
-          🛡️ <Text style={styles.infoBoxBold}>Family Shield Guarantee:</Text> SafeSearch and Parental Locks operate strictly on-device inside Aegis Guard. No browsing history or personal data is ever recorded.
+          🛡️ <Text style={styles.infoBoxBold}>Family Shield Guarantee:</Text> Adult content filtering and biometric locks operate with zero data logging. No browsing history or personal data is ever recorded.
         </Text>
       </View>
     </ScrollView>
@@ -162,6 +225,11 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 3,
+  },
+  cardFamilyActive: {
+    borderColor: '#6EE7B7',
+    borderWidth: 1.5,
+    backgroundColor: '#F0FDF4',
   },
   cardHeader: {
     flexDirection: 'row',

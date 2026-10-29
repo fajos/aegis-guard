@@ -22,12 +22,22 @@ const PRESET_PROVIDERS: PresetServer[] = [
   {
     name: 'AdGuard Default DNS',
     servers: ['94.140.14.14', '94.140.15.15'],
-    description: 'AdGuard official filtering DNS resolvers (Anycast global network)',
+    description: 'AdGuard official filtering DNS resolvers (Blocks ads & trackers)',
+  },
+  {
+    name: 'AdGuard Family Protection',
+    servers: ['94.140.14.15', '94.140.15.16'],
+    description: 'Blocks adult & explicit websites, enforces SafeSearch, plus ad-blocking',
   },
   {
     name: 'Cloudflare DNS',
     servers: ['1.1.1.1', '1.0.0.1'],
     description: 'Ultra-fast privacy-first recursive resolver with zero-logging guarantee',
+  },
+  {
+    name: 'Cloudflare Family (1.1.1.3)',
+    servers: ['1.1.1.3', '1.0.0.3'],
+    description: 'Cloudflare resolver with automated malware and adult content blocking',
   },
   {
     name: 'Google Public DNS',
