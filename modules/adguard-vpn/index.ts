@@ -1,4 +1,5 @@
 import { NativeModules, NativeEventEmitter, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface VpnStatistics {
   totalQueries: number;
@@ -83,6 +84,21 @@ export interface AdGuardVpnInterface {
 }
 
 // ---------------------------------------------------------
+// Storage Keys for Bulletproof Persistence Across App Restarts
+// ---------------------------------------------------------
+const STORAGE_KEYS = {
+  IS_RUNNING: '@aegis_vpn_is_running',
+  STATS: '@aegis_vpn_stats',
+  RULES: '@aegis_vpn_user_rules',
+  SUBSCRIPTIONS: '@aegis_vpn_subscriptions',
+  APPS: '@aegis_vpn_apps',
+  LOGS: '@aegis_vpn_logs',
+  DNS: '@aegis_vpn_dns_config',
+  SAFE_SEARCH: '@aegis_vpn_safesearch',
+  PARENTAL_LOCK: '@aegis_vpn_parental_lock',
+};
+
+// ---------------------------------------------------------
 // Cross-Platform Fallback EventEmitter
 // ---------------------------------------------------------
 class FallbackEventEmitter {
@@ -132,11 +148,14 @@ class FallbackEventEmitter {
 const fallbackEmitter = new FallbackEventEmitter();
 
 // ---------------------------------------------------------
-// Cross-Platform Fallback Engine (iOS & Development Mock)
+// Persistent Cross-Platform Fallback Engine
 // ---------------------------------------------------------
 class FallbackVpnEngine implements AdGuardVpnInterface {
   private running = false;
+  private isLoaded = false;
+  private initPromise: Promise<void> | null = null;
   private timer: any = null;
+  private tickCount = 0;
   private safeSearch = false;
   private parentalLock = false;
 
@@ -288,60 +307,159 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
     { domain: 'pagead2.googlesyndication.com', isBlocked: true, matchedRule: '||googlesyndication.com^' },
   ];
 
-  async isRunning(): Promise<boolean> {
-    return this.running;
-  }
+  public async ensureInitialized(): Promise<void> {
+    if (this.isLoaded) return;
+    if (!this.initPromise) {
+      this.initPromise = (async () => {
+        try {
+          const [
+            storedRunning,
+            storedStats,
+            storedRules,
+            storedSubs,
+            storedApps,
+            storedLogs,
+            storedDns,
+            storedSafeSearch,
+            storedLock,
+          ] = await Promise.all([
+            AsyncStorage.getItem(STORAGE_KEYS.IS_RUNNING),
+            AsyncStorage.getItem(STORAGE_KEYS.STATS),
+            AsyncStorage.getItem(STORAGE_KEYS.RULES),
+            AsyncStorage.getItem(STORAGE_KEYS.SUBSCRIPTIONS),
+            AsyncStorage.getItem(STORAGE_KEYS.APPS),
+            AsyncStorage.getItem(STORAGE_KEYS.LOGS),
+            AsyncStorage.getItem(STORAGE_KEYS.DNS),
+            AsyncStorage.getItem(STORAGE_KEYS.SAFE_SEARCH),
+            AsyncStorage.getItem(STORAGE_KEYS.PARENTAL_LOCK),
+          ]);
 
-  async startVpn(): Promise<boolean> {
-    this.running = true;
-    fallbackEmitter.emit('onVpnStateChanged', { isRunning: true });
+          if (storedRunning !== null) {
+            this.running = storedRunning === 'true';
+          }
+          if (storedStats) {
+            try {
+              this.currentStats = { ...this.currentStats, ...JSON.parse(storedStats) };
+            } catch (e) {}
+          }
+          if (storedRules) {
+            try {
+              this.userRulesList = JSON.parse(storedRules);
+            } catch (e) {}
+          }
+          if (storedSubs) {
+            try {
+              this.subscriptions = JSON.parse(storedSubs);
+            } catch (e) {}
+          }
+          if (storedApps) {
+            try {
+              this.apps = JSON.parse(storedApps);
+            } catch (e) {}
+          }
+          if (storedLogs) {
+            try {
+              this.logs = JSON.parse(storedLogs);
+            } catch (e) {}
+          }
+          if (storedDns) {
+            try {
+              this.dnsConfig = JSON.parse(storedDns);
+            } catch (e) {}
+          }
+          if (storedSafeSearch !== null) {
+            this.safeSearch = storedSafeSearch === 'true';
+          }
+          if (storedLock !== null) {
+            this.parentalLock = storedLock === 'true';
+          }
 
-    if (!this.timer) {
-      this.timer = setInterval(() => {
-        if (!this.running) return;
-
-        const item = this.simulatedTraffic[Math.floor(Math.random() * this.simulatedTraffic.length)];
-        const record: QueryLogRecord = {
-          domain: item.domain,
-          queryType: Math.random() > 0.3 ? 'A' : 'AAAA',
-          isBlocked: item.isBlocked,
-          matchedRule: item.matchedRule,
-          durationMs: item.isBlocked ? Math.floor(Math.random() * 5 + 1) : Math.floor(Math.random() * 25 + 10),
-          upstream: item.isBlocked ? 'Aegis Local Engine' : `${this.dnsConfig.upstreamDnsServers[0]}:53`,
-          timestamp: Date.now(),
-        };
-
-        this.logs.unshift(record);
-        if (this.logs.length > 200) this.logs.pop();
-
-        this.currentStats.totalQueries++;
-        if (item.isBlocked) {
-          this.currentStats.blockedQueries++;
-          this.currentStats.dataSavedBytes += 45000;
+          if (this.running) {
+            this.startSimulationTimer();
+          }
+        } catch (e) {
+          console.error('[FallbackVpnEngine] Failed to restore persisted state:', e);
+        } finally {
+          this.isLoaded = true;
         }
-        this.currentStats.blockRate = parseFloat(
-          ((this.currentStats.blockedQueries / this.currentStats.totalQueries) * 100).toFixed(1)
-        );
-
-        fallbackEmitter.emit('onQueryLogged', record);
-        fallbackEmitter.emit('onQueriesLogged', [record]);
-        fallbackEmitter.emit('onStatisticsUpdated', this.currentStats);
-      }, 3500);
+      })();
     }
-    return true;
+    return this.initPromise;
   }
 
-  async stopVpn(): Promise<boolean> {
-    this.running = false;
+  private startSimulationTimer() {
+    if (this.timer) return;
+    this.timer = setInterval(() => {
+      if (!this.running) return;
+
+      const item = this.simulatedTraffic[Math.floor(Math.random() * this.simulatedTraffic.length)];
+      const record: QueryLogRecord = {
+        domain: item.domain,
+        queryType: Math.random() > 0.3 ? 'A' : 'AAAA',
+        isBlocked: item.isBlocked,
+        matchedRule: item.matchedRule,
+        durationMs: item.isBlocked ? Math.floor(Math.random() * 5 + 1) : Math.floor(Math.random() * 25 + 10),
+        upstream: item.isBlocked ? 'Aegis Local Engine' : `${this.dnsConfig.upstreamDnsServers[0]}:53`,
+        timestamp: Date.now(),
+      };
+
+      this.logs.unshift(record);
+      if (this.logs.length > 200) this.logs.pop();
+
+      this.currentStats.totalQueries++;
+      if (item.isBlocked) {
+        this.currentStats.blockedQueries++;
+        this.currentStats.dataSavedBytes += 45000;
+      }
+      this.currentStats.blockRate = parseFloat(
+        ((this.currentStats.blockedQueries / this.currentStats.totalQueries) * 100).toFixed(1)
+      );
+
+      fallbackEmitter.emit('onQueryLogged', record);
+      fallbackEmitter.emit('onQueriesLogged', [record]);
+      fallbackEmitter.emit('onStatisticsUpdated', this.currentStats);
+
+      // Periodically persist running stats and logs every 5 queries
+      this.tickCount++;
+      if (this.tickCount % 5 === 0) {
+        AsyncStorage.setItem(STORAGE_KEYS.STATS, JSON.stringify(this.currentStats)).catch(() => {});
+        AsyncStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(this.logs.slice(0, 50))).catch(() => {});
+      }
+    }, 3500);
+  }
+
+  private stopSimulationTimer() {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
     }
+  }
+
+  async isRunning(): Promise<boolean> {
+    await this.ensureInitialized();
+    return this.running;
+  }
+
+  async startVpn(): Promise<boolean> {
+    await this.ensureInitialized();
+    this.running = true;
+    await AsyncStorage.setItem(STORAGE_KEYS.IS_RUNNING, 'true');
+    this.startSimulationTimer();
+    fallbackEmitter.emit('onVpnStateChanged', { isRunning: true });
+    return true;
+  }
+
+  async stopVpn(): Promise<boolean> {
+    await this.ensureInitialized();
+    this.running = false;
+    await AsyncStorage.setItem(STORAGE_KEYS.IS_RUNNING, 'false');
+    this.stopSimulationTimer();
     fallbackEmitter.emit('onVpnStateChanged', { isRunning: false });
     return true;
   }
 
   async getStatistics(): Promise<VpnStatistics> {
+    await this.ensureInitialized();
     let totalRules = this.userRulesList.length;
     for (const sub of this.subscriptions) {
       if (sub.isEnabled) totalRules += sub.ruleCount;
@@ -351,76 +469,95 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
   }
 
   async addCustomRule(rule: string): Promise<boolean> {
+    await this.ensureInitialized();
     if (rule.trim()) {
       this.userRulesList.push(rule.trim());
       this.currentStats.ruleCount++;
+      AsyncStorage.setItem(STORAGE_KEYS.RULES, JSON.stringify(this.userRulesList)).catch(() => {});
       return true;
     }
     return false;
   }
 
   async getUserRules(): Promise<string> {
+    await this.ensureInitialized();
     return this.userRulesList.join('\n');
   }
 
   async saveUserRules(rulesText: string): Promise<boolean> {
+    await this.ensureInitialized();
     this.userRulesList = rulesText
       .split('\n')
       .map((r) => r.trim())
       .filter((r) => r.length > 0);
+    AsyncStorage.setItem(STORAGE_KEYS.RULES, JSON.stringify(this.userRulesList)).catch(() => {});
     return true;
   }
 
   async getFilterSubscriptions(): Promise<FilterSubscriptionInfo[]> {
+    await this.ensureInitialized();
     return [...this.subscriptions];
   }
 
   async toggleFilterSubscription(id: number, enabled: boolean): Promise<boolean> {
+    await this.ensureInitialized();
     const sub = this.subscriptions.find((s) => s.id === id);
     if (sub) {
       sub.isEnabled = enabled;
+      AsyncStorage.setItem(STORAGE_KEYS.SUBSCRIPTIONS, JSON.stringify(this.subscriptions)).catch(() => {});
       return true;
     }
     return false;
   }
 
   async updateFilterSubscriptions(): Promise<number> {
+    await this.ensureInitialized();
     for (const sub of this.subscriptions) {
       sub.lastUpdated = Date.now();
     }
+    AsyncStorage.setItem(STORAGE_KEYS.SUBSCRIPTIONS, JSON.stringify(this.subscriptions)).catch(() => {});
     const stats = await this.getStatistics();
     return stats.ruleCount;
   }
 
   async getInstalledApps(): Promise<AppManagementInfo[]> {
+    await this.ensureInitialized();
     return [...this.apps];
   }
 
   async setAppBypass(packageName: string, bypass: boolean): Promise<boolean> {
+    await this.ensureInitialized();
     const app = this.apps.find((a) => a.packageName === packageName);
     if (app) {
       app.isVpnBypassed = bypass;
+      AsyncStorage.setItem(STORAGE_KEYS.APPS, JSON.stringify(this.apps)).catch(() => {});
       return true;
     }
     return false;
   }
 
   async getQueryLogs(): Promise<QueryLogRecord[]> {
+    await this.ensureInitialized();
     return [...this.logs];
   }
 
   async clearQueryLogs(): Promise<boolean> {
+    await this.ensureInitialized();
     this.logs = [];
+    AsyncStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify([])).catch(() => {});
     return true;
   }
 
   async getDnsSettings(): Promise<DnsConfiguration> {
+    await this.ensureInitialized();
     return { ...this.dnsConfig };
   }
 
   async setDnsSettings(upstreamServers: string[], blockingModeStr: string): Promise<boolean> {
+    await this.ensureInitialized();
     this.dnsConfig.upstreamDnsServers = upstreamServers;
     this.dnsConfig.blockingMode = (blockingModeStr as any) || 'NXDOMAIN';
+    AsyncStorage.setItem(STORAGE_KEYS.DNS, JSON.stringify(this.dnsConfig)).catch(() => {});
     return true;
   }
 
@@ -464,24 +601,31 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
   }
 
   async setSafeSearchEnabled(enabled: boolean): Promise<boolean> {
+    await this.ensureInitialized();
     this.safeSearch = enabled;
+    AsyncStorage.setItem(STORAGE_KEYS.SAFE_SEARCH, String(enabled)).catch(() => {});
     return true;
   }
 
   async isSafeSearchEnabled(): Promise<boolean> {
+    await this.ensureInitialized();
     return this.safeSearch;
   }
 
   async setParentalLockEnabled(enabled: boolean): Promise<boolean> {
+    await this.ensureInitialized();
     this.parentalLock = enabled;
+    AsyncStorage.setItem(STORAGE_KEYS.PARENTAL_LOCK, String(enabled)).catch(() => {});
     return true;
   }
 
   async isParentalLockEnabled(): Promise<boolean> {
+    await this.ensureInitialized();
     return this.parentalLock;
   }
 
   async testDomainFilter(domain: string): Promise<DomainFilterTestResult> {
+    await this.ensureInitialized();
     const d = domain.toLowerCase();
 
     // 1. SafeSearch Rewrites
@@ -563,11 +707,14 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
 }
 
 const fallbackEngine = new FallbackVpnEngine();
+// Eagerly initiate state restore from storage in background
+fallbackEngine.ensureInitialized().catch(() => {});
+
 const { AdGuardVpnModule } = NativeModules;
 
 if (!AdGuardVpnModule) {
   console.info(
-    `[AdGuardVpnModule] Native module is running in cross-platform mode on ${Platform.OS}. ` +
+    `[AdGuardVpnModule] Native module is running in persistent cross-platform mode on ${Platform.OS}. ` +
     'Native Linux TUN is active on Android builds.'
   );
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   AdGuardVpn,
   vpnEventEmitter,
@@ -17,6 +18,19 @@ let cachedStats: VpnStatistics = {
 };
 let cachedRecentLogs: QueryLogRecord[] = [];
 
+// Eager restore of cached running state
+AsyncStorage.getItem('@aegis_vpn_is_running').then((val) => {
+  if (val === 'true') cachedIsRunning = true;
+}).catch(() => {});
+
+AsyncStorage.getItem('@aegis_vpn_stats').then((val) => {
+  if (val) {
+    try {
+      cachedStats = JSON.parse(val);
+    } catch (e) {}
+  }
+}).catch(() => {});
+
 export function useAdGuardVpn(isActive: boolean = true) {
   const [isRunning, setIsRunning] = useState<boolean>(cachedIsRunning);
   const [stats, setStats] = useState<VpnStatistics>(cachedStats);
@@ -24,6 +38,15 @@ export function useAdGuardVpn(isActive: boolean = true) {
 
   const pendingBatchRef = useRef<QueryLogRecord[]>([]);
   const flushTimerRef = useRef<any>(null);
+
+  useEffect(() => {
+    AsyncStorage.getItem('@aegis_vpn_is_running').then((val) => {
+      if (val === 'true') {
+        cachedIsRunning = true;
+        setIsRunning(true);
+      }
+    }).catch(() => {});
+  }, []);
 
   const refreshState = useCallback(async () => {
     try {
