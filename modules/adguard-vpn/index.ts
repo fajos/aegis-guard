@@ -710,9 +710,18 @@ const fallbackEngine = new FallbackVpnEngine();
 // Eagerly initiate state restore from storage in background
 fallbackEngine.ensureInitialized().catch(() => {});
 
-const { AdGuardVpnModule } = NativeModules;
+let resolvedNativeModule: any = NativeModules.AdGuardVpnModule;
 
-if (!AdGuardVpnModule) {
+if (!resolvedNativeModule) {
+  try {
+    const { requireNativeModule } = require('expo-modules-core');
+    resolvedNativeModule = requireNativeModule('AdGuardVpnModule');
+  } catch (e) {
+    // Falls back to pure cross-platform engine
+  }
+}
+
+if (!resolvedNativeModule) {
   console.info(
     `[AdGuardVpnModule] Native module is running in persistent cross-platform mode on ${Platform.OS}. ` +
     'Native Linux TUN is active on Android builds.'
@@ -723,12 +732,32 @@ if (!AdGuardVpnModule) {
 // Exported AdGuardVpn Facade with Zero-Crash Guarantees
 // ---------------------------------------------------------
 export const AdGuardVpn: AdGuardVpnInterface = new Proxy(
-  (AdGuardVpnModule || {}) as AdGuardVpnInterface,
+  (resolvedNativeModule || {}) as AdGuardVpnInterface,
   {
     get(target: any, prop: string) {
       const val = target[prop];
       if (typeof val === 'function') {
-        return val.bind(target);
+        return async (...args: any[]) => {
+          try {
+            const nativeResult = await val.apply(target, args);
+            // Also keep fallback engine in sync for UI state & counters
+            if (prop === 'startVpn') {
+              fallbackEngine.startVpn().catch(() => {});
+            } else if (prop === 'stopVpn') {
+              fallbackEngine.stopVpn().catch(() => {});
+            }
+            return nativeResult;
+          } catch (e) {
+            // If native call fails, fallback gracefully to cross-platform engine
+            if (prop in fallbackEngine) {
+              const fallbackFn = (fallbackEngine as any)[prop];
+              if (typeof fallbackFn === 'function') {
+                return fallbackFn.apply(fallbackEngine, args);
+              }
+            }
+            throw e;
+          }
+        };
       }
       if (val !== undefined) {
         return val;
@@ -746,6 +775,6 @@ export const AdGuardVpn: AdGuardVpnInterface = new Proxy(
   }
 );
 
-export const vpnEventEmitter: NativeEventEmitter = AdGuardVpnModule
-  ? new NativeEventEmitter(AdGuardVpnModule)
+export const vpnEventEmitter: NativeEventEmitter = resolvedNativeModule
+  ? new NativeEventEmitter(resolvedNativeModule)
   : (fallbackEmitter as unknown as NativeEventEmitter);

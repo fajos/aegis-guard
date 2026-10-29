@@ -1,10 +1,10 @@
 {
   "name": "adguard-vpn",
-  "platforms": ["ios", "android"],
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["AdGuardVpnModule"]
+  },
   "android": {
     "package": "com.fajostech.aegisguard.bridge.AdGuardVpnPackage"
-  },
-  "ios": {
-    "modules": ["AdGuardVpnModule"]
   }
 }

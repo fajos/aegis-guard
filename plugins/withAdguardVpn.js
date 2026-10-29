@@ -220,7 +220,10 @@ function withAdguardAppBuildGradle(config) {
 function withAdguardIos(config) {
   if (!withEntitlementsPlist) return config;
   return withEntitlementsPlist(config, (config) => {
-    config.modResults['com.apple.developer.networking.networkextension'] = ['packet-tunnel-provider'];
+    config.modResults['com.apple.developer.networking.networkextension'] = [
+      'packet-tunnel-provider',
+      'dns-settings',
+    ];
     config.modResults['com.apple.security.application-groups'] = ['group.com.fajostech.aegisguard'];
     return config;
   });

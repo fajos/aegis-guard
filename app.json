@@ -16,7 +16,8 @@
       "bundleIdentifier": "com.fajostech.aegisguard",
       "entitlements": {
         "com.apple.developer.networking.networkextension": [
-          "packet-tunnel-provider"
+          "packet-tunnel-provider",
+          "dns-settings"
         ],
         "com.apple.security.application-groups": [
           "group.com.fajostech.aegisguard"
