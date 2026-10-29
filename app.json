@@ -14,9 +14,18 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.fajostech.aegisguard",
+      "entitlements": {
+        "com.apple.developer.networking.networkextension": [
+          "packet-tunnel"
+        ],
+        "com.apple.security.application-groups": [
+          "group.com.fajostech.aegisguard"
+        ]
+      },
       "infoPlist": {
         "UIBackgroundModes": [
-          "fetch"
+          "fetch",
+          "network-authentication"
         ],
         "ITSAppUsesNonExemptEncryption": false
       }
