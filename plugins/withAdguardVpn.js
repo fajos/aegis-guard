@@ -19,7 +19,7 @@ try {
  *
  * Configures AndroidManifest.xml with LocalVpnService (android.net.VpnService),
  * Quick Settings Tile, Watchdog Service, Boot Receiver, and special-use FGS permissions.
- * Configures iOS entitlements with NetworkExtension packet-tunnel and App Groups.
+ * Configures iOS entitlements with NetworkExtension packet-tunnel-provider and App Groups.
  * Injects packaging options into gradle.properties to resolve multi-release JAR META-INF collisions.
  * Injects AdGuardVpnPackage registration into MainApplication.kt and app/build.gradle.
  */
@@ -220,7 +220,7 @@ function withAdguardAppBuildGradle(config) {
 function withAdguardIos(config) {
   if (!withEntitlementsPlist) return config;
   return withEntitlementsPlist(config, (config) => {
-    config.modResults['com.apple.developer.networking.networkextension'] = ['packet-tunnel'];
+    config.modResults['com.apple.developer.networking.networkextension'] = ['packet-tunnel-provider'];
     config.modResults['com.apple.security.application-groups'] = ['group.com.fajostech.aegisguard'];
     return config;
   });
