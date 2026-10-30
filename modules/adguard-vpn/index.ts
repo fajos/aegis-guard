@@ -919,6 +919,10 @@ export const AdGuardVpn: AdGuardVpnInterface = new Proxy(
               fallbackEngine.startVpn().catch(() => {});
             } else if (prop === 'stopVpn') {
               fallbackEngine.stopVpn().catch(() => {});
+            } else if (prop === 'setFamilyProtectionEnabled') {
+              fallbackEngine.setFamilyProtectionEnabled(args[0]).catch(() => {});
+            } else if (prop === 'setExcludedDomains') {
+              fallbackEngine.setExcludedDomains(args[0]).catch(() => {});
             }
             return nativeResult;
           } catch (e) {
