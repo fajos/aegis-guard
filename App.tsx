@@ -12,6 +12,7 @@ import { QueryLogScreen } from './src/screens/QueryLogScreen';
 import { FiltersScreen } from './src/screens/FiltersScreen';
 import { AppManagementScreen } from './src/screens/AppManagementScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
+import { FilterAutoUpdateBanner } from './src/components/FilterAutoUpdateBanner';
 
 type Tab = 'dashboard' | 'queryLog' | 'filters' | 'apps' | 'settings';
 
@@ -58,6 +59,9 @@ function MainNavigator(): React.JSX.Element {
           <SettingsScreen />
         </View>
       </View>
+
+      {/* Floating Auto-Update Banner (Visible from any screen) */}
+      <FilterAutoUpdateBanner />
 
       {/* Bottom Navigation Tab Bar with Safe Area Inset Protection */}
       <View style={[styles.tabBar, { paddingBottom: bottomPadding }]}>
