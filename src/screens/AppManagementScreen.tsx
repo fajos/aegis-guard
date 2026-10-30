@@ -204,7 +204,7 @@ export const AppManagementScreen: React.FC = () => {
           <Text style={styles.guideTitle}>Game & Rewarded Ad Exclusions Active</Text>
           <Text style={styles.guideSubtitle}>
             Excluded games (switch OFF) have their online servers and rewarded ads bypass DNS blocking.
-            Protected apps (switch ON, e.g. GSE IPTV) have all video & popup ads eliminated.
+            Protected apps (switch ON) have all video & popup ads eliminated.
           </Text>
         </View>
       </View>

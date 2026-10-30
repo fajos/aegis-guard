@@ -20,12 +20,12 @@ interface PresetServer {
 
 const PRESET_PROVIDERS: PresetServer[] = [
   {
-    name: 'AdGuard Default DNS',
+    name: 'Aegis Secure DNS (Default)',
     servers: ['94.140.14.14', '94.140.15.15'],
-    description: 'AdGuard official filtering DNS resolvers (Blocks ads & trackers)',
+    description: 'Ultra-fast Anycast resolvers blocking ads, trackers, and malicious scripts',
   },
   {
-    name: 'AdGuard Family Protection',
+    name: 'Aegis Family Shield',
     servers: ['94.140.14.15', '94.140.15.16'],
     description: 'Blocks adult & explicit websites, enforces SafeSearch, plus ad-blocking',
   },

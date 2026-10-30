@@ -53,7 +53,7 @@ export const FamilySecuritySection: React.FC = () => {
       Alert.alert(
         newValue ? 'Adult Content Blocked' : 'Adult Content Unblocked',
         newValue
-          ? 'AdGuard Family Protection is now active. All pornographic domains and adult websites are blocked across the entire device on both Cellular (4G/5G) and Wi-Fi.'
+          ? 'Aegis Family Shield is now active. All pornographic domains and adult websites are blocked across the entire device on both Cellular (4G/5G) and Wi-Fi.'
           : 'Standard protection restored. Adult website filtering is now disabled.'
       );
     } catch (e: any) {
@@ -116,7 +116,7 @@ export const FamilySecuritySection: React.FC = () => {
           <View style={styles.cardHeaderText}>
             <Text style={styles.cardTitle}>Block Adult & Explicit Websites</Text>
             <Text style={styles.cardSubtitle}>
-              Biometric Protected • AdGuard Family Shield
+              Biometric Protected • Aegis Family Shield
             </Text>
           </View>
           <Switch

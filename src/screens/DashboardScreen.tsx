@@ -6,8 +6,6 @@ import {
   Switch,
   TouchableOpacity,
   StyleSheet,
-  Platform,
-  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -126,32 +124,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
             <Text style={styles.statLabel}>Block Ratio</Text>
           </View>
         </View>
-
-        {/* iOS System DNS Profile Card for GSE IPTV and Third-Party Apps */}
-        {Platform.OS === 'ios' && (
-          <TouchableOpacity
-            style={styles.systemShieldCard}
-            activeOpacity={0.8}
-            onPress={() => {
-              Linking.openURL(
-                'https://github.com/paulmillr/encrypted-dns/raw/master/signed/adguard-default-https.mobileconfig'
-              );
-            }}
-          >
-            <View style={styles.systemShieldLeft}>
-              <Text style={styles.systemShieldIcon}>⚡</Text>
-              <View style={styles.systemShieldTextContainer}>
-                <Text style={styles.systemShieldTitle}>Block Ads in GSE IPTV & Mobile Network</Text>
-                <Text style={styles.systemShieldSubtitle}>
-                  Install the signed Apple DNS profile to block popup ads across GSE IPTV and apps on 4G/5G mobile data.
-                </Text>
-              </View>
-            </View>
-            <View style={styles.systemShieldBadge}>
-              <Text style={styles.systemShieldBadgeText}>Install ↗</Text>
-            </View>
-          </TouchableOpacity>
-        )}
 
         {/* Diagnostic Security & Leak Audit Button */}
         <TouchableOpacity
@@ -407,57 +379,6 @@ const styles = StyleSheet.create({
   },
   tipBold: {
     fontWeight: '700',
-  },
-  systemShieldCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#1E1B4B',
-    borderColor: '#6366F1',
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 14,
-    elevation: 3,
-    shadowColor: '#6366F1',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-  },
-  systemShieldLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    marginRight: 12,
-  },
-  systemShieldIcon: {
-    fontSize: 24,
-    marginRight: 12,
-  },
-  systemShieldTextContainer: {
-    flex: 1,
-  },
-  systemShieldTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#EEF2FF',
-  },
-  systemShieldSubtitle: {
-    fontSize: 12,
-    color: '#C7D2FE',
-    marginTop: 2,
-    lineHeight: 16,
-  },
-  systemShieldBadge: {
-    backgroundColor: '#6366F1',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  systemShieldBadgeText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#FFFFFF',
   },
   auditCard: {
     flexDirection: 'row',
