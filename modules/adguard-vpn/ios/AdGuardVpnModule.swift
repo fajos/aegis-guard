@@ -46,7 +46,14 @@ public class AdGuardVpnModule: Module {
         var rules: [NEOnDemandRule] = []
         let excluded = UserDefaults.standard.stringArray(forKey: "aegis_excluded_domains") ?? []
         if !excluded.isEmpty {
-          let evalRule = NEEvaluateConnectionRule(matchDomains: excluded, andAction: .neverConnect)
+          var allMatchDomains: [String] = []
+          for d in excluded {
+            allMatchDomains.append(d)
+            if !d.hasPrefix("*.") {
+              allMatchDomains.append("*." + d)
+            }
+          }
+          let evalRule = NEEvaluateConnectionRule(matchDomains: allMatchDomains, andAction: .neverConnect)
           let onDemandEval = NEOnDemandRuleEvaluateConnection()
           onDemandEval.interfaceTypeMatch = .any
           onDemandEval.connectionRules = [evalRule]
@@ -105,7 +112,14 @@ public class AdGuardVpnModule: Module {
         if manager.isEnabled && !isPaused {
           var rules: [NEOnDemandRule] = []
           if !domains.isEmpty {
-            let evalRule = NEEvaluateConnectionRule(matchDomains: domains, andAction: .neverConnect)
+            var allMatchDomains: [String] = []
+            for d in domains {
+              allMatchDomains.append(d)
+              if !d.hasPrefix("*.") {
+                allMatchDomains.append("*." + d)
+              }
+            }
+            let evalRule = NEEvaluateConnectionRule(matchDomains: allMatchDomains, andAction: .neverConnect)
             let onDemandEval = NEOnDemandRuleEvaluateConnection()
             onDemandEval.interfaceTypeMatch = .any
             onDemandEval.connectionRules = [evalRule]

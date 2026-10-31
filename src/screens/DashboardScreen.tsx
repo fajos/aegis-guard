@@ -21,8 +21,14 @@ interface DashboardScreenProps {
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({
   isActive = true,
 }) => {
-  const { isRunning, stats, toggleVpn } = useAdGuardVpn(isActive);
+  const { isRunning, stats, snoozeSeconds, toggleVpn, snoozeVpn, cancelSnooze } = useAdGuardVpn(isActive);
   const [auditModalVisible, setAuditModalVisible] = useState(false);
+
+  const formatSnoozeTime = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
 
   const handleToggleVpn = async () => {
     if (isRunning) {
@@ -91,6 +97,64 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
             style={styles.switchControl}
           />
         </View>
+
+        {/* Game Mode / Quick Snooze Bar */}
+        {snoozeSeconds > 0 ? (
+          <View style={styles.gameModeActiveCard}>
+            <View style={styles.gameModeActiveHeader}>
+              <Text style={styles.gameModeActiveIcon}>🎮</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.gameModeActiveTitle}>Game Mode Active</Text>
+                <Text style={styles.gameModeActiveSubtitle}>
+                  Protection snoozed • Rewarded ads & gaming servers accessible
+                </Text>
+              </View>
+              <Text style={styles.gameModeCountdown}>{formatSnoozeTime(snoozeSeconds)}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.gameModeResumeButton}
+              onPress={cancelSnooze}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.gameModeResumeText}>🛡️ Resume Protection Now</Text>
+            </TouchableOpacity>
+          </View>
+        ) : isRunning ? (
+          <View style={styles.gameModeCard}>
+            <View style={styles.gameModeHeader}>
+              <Text style={styles.gameModeIcon}>🎮</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.gameModeTitle}>Quick Game Mode</Text>
+                <Text style={styles.gameModeSubtitle}>
+                  Need rewarded ads in a game? Auto-resuming snooze:
+                </Text>
+              </View>
+            </View>
+            <View style={styles.gameModeChips}>
+              <TouchableOpacity
+                style={styles.gameModeChip}
+                onPress={() => snoozeVpn(60)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.gameModeChipText}>⚡ 1 Min</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.gameModeChip}
+                onPress={() => snoozeVpn(120)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.gameModeChipText}>⚡ 2 Mins</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.gameModeChip}
+                onPress={() => snoozeVpn(300)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.gameModeChipText}>⚡ 5 Mins</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
 
         {/* 4-Card Stats Grid */}
         <View style={styles.statsGrid}>
@@ -421,5 +485,97 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: '#10B981',
+  },
+  gameModeActiveCard: {
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1.5,
+    borderColor: '#F59E0B',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+  },
+  gameModeActiveHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  gameModeActiveIcon: {
+    fontSize: 24,
+    marginRight: 10,
+  },
+  gameModeActiveTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#92400E',
+  },
+  gameModeActiveSubtitle: {
+    fontSize: 11,
+    color: '#B45309',
+    marginTop: 1,
+  },
+  gameModeCountdown: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#B45309',
+    fontVariant: ['tabular-nums'],
+    marginLeft: 8,
+  },
+  gameModeResumeButton: {
+    backgroundColor: '#D97706',
+    borderRadius: 8,
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gameModeResumeText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 12,
+  },
+  gameModeCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 16,
+  },
+  gameModeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  gameModeIcon: {
+    fontSize: 20,
+    marginRight: 10,
+  },
+  gameModeTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  gameModeSubtitle: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 1,
+  },
+  gameModeChips: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  gameModeChip: {
+    flex: 1,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    paddingVertical: 7,
+    alignItems: 'center',
+  },
+  gameModeChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#374151',
   },
 });

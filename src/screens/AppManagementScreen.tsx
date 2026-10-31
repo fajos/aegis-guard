@@ -12,7 +12,14 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AdGuardVpn, AppManagementInfo } from '../native/AdGuardVpnModule';
+import {
+  AdGuardVpn,
+  AppManagementInfo,
+  POPULAR_GAMES_CATALOG,
+  GAMING_REWARDED_AD_DOMAINS,
+  GOOGLE_ADMOB_DOMAINS,
+  PopularGameCatalogItem,
+} from '../native/AdGuardVpnModule';
 
 // Module-level in-memory cache to prevent repetitive full-system package scans
 let cachedApps: AppManagementInfo[] = [];
@@ -23,9 +30,12 @@ export const AppManagementScreen: React.FC = () => {
   const [showSystemApps, setShowSystemApps] = useState(false);
   const [isLoading, setIsLoading] = useState(cachedApps.length === 0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isGameAdsBypass, setIsGameAdsBypass] = useState(false);
 
   // Add custom app modal states
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
+  const [isCatalogModalVisible, setIsCatalogModalVisible] = useState(false);
+  const [catalogSearch, setCatalogSearch] = useState('');
   const [newAppName, setNewAppName] = useState('');
   const [newPackageName, setNewPackageName] = useState('');
   const [newCustomDomains, setNewCustomDomains] = useState('');
@@ -39,11 +49,15 @@ export const AppManagementScreen: React.FC = () => {
     }
     try {
       if (!AdGuardVpn) return;
-      const data = await AdGuardVpn.getInstalledApps();
+      const [data, bypass] = await Promise.all([
+        AdGuardVpn.getInstalledApps(),
+        AdGuardVpn.isGameAdsBypassEnabled(),
+      ]);
       if (data && data.length > 0) {
         cachedApps = data;
         setApps(data);
       }
+      setIsGameAdsBypass(bypass);
     } catch (e) {
       console.error(e);
     } finally {
@@ -53,10 +67,43 @@ export const AppManagementScreen: React.FC = () => {
   };
 
   useEffect(() => {
-    if (cachedApps.length === 0) {
-      fetchApps();
-    }
+    fetchApps();
   }, []);
+
+  const handleToggleGameAdsBypass = async (val: boolean) => {
+    try {
+      setIsGameAdsBypass(val);
+      await AdGuardVpn.setGameAdsBypassEnabled(val);
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Failed to update game ads setting');
+    }
+  };
+
+  const handleAddFromCatalog = async (item: PopularGameCatalogItem) => {
+    const newApp: AppManagementInfo = {
+      appName: item.appName,
+      packageName: item.packageName,
+      isSystemApp: false,
+      isFiltered: false,
+      isVpnBypassed: true,
+    };
+    try {
+      await AdGuardVpn.addCustomApp(newApp, item.domains);
+      cachedApps = [newApp, ...cachedApps.filter((a) => a.packageName !== item.packageName)];
+      setApps(cachedApps);
+      Alert.alert('Game Excluded', `"${item.appName}" has been added and rewarded video ads are enabled!`);
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Failed to add game.');
+    }
+  };
+
+  const filteredCatalog = useMemo(() => {
+    if (!catalogSearch) return POPULAR_GAMES_CATALOG;
+    const q = catalogSearch.toLowerCase();
+    return POPULAR_GAMES_CATALOG.filter(
+      (g) => g.appName.toLowerCase().includes(q) || g.category.toLowerCase().includes(q)
+    );
+  }, [catalogSearch]);
 
   const handleToggleBypass = async (app: AppManagementInfo) => {
     const newBypass = !app.isVpnBypassed;
@@ -176,6 +223,13 @@ export const AppManagementScreen: React.FC = () => {
           </View>
           <View style={styles.headerButtons}>
             <TouchableOpacity
+              style={styles.catalogButton}
+              onPress={() => setIsCatalogModalVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.catalogButtonText}>🎮 Library</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
               style={styles.addButton}
               onPress={() => setIsAddModalVisible(true)}
               activeOpacity={0.7}
@@ -195,6 +249,30 @@ export const AppManagementScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
         </View>
+      </View>
+
+      {/* Universal Rewarded Ad Bypass Card */}
+      <View style={styles.universalCard}>
+        <View style={styles.universalLeft}>
+          <Text style={styles.universalIcon}>🎮</Text>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={styles.universalTitle}>Allow Rewarded Ads in All Games</Text>
+              <View style={styles.proBadge}>
+                <Text style={styles.proBadgeText}>1-TAP FIX</Text>
+              </View>
+            </View>
+            <Text style={styles.universalSubtitle}>
+              Automatically allows Unity Ads, Supersonic, AppLovin, and Vungle across all games so free rewards work.
+            </Text>
+          </View>
+        </View>
+        <Switch
+          value={isGameAdsBypass}
+          onValueChange={handleToggleGameAdsBypass}
+          trackColor={{ false: '#D1D5DB', true: '#FDE68A' }}
+          thumbColor={isGameAdsBypass ? '#F59E0B' : '#F3F4F6'}
+        />
       </View>
 
       {/* Guide Banner */}
@@ -347,6 +425,36 @@ export const AppManagementScreen: React.FC = () => {
             />
 
             <Text style={styles.inputLabel}>Custom Domains to Bypass (Comma-separated)</Text>
+            <View style={styles.quickPresetRow}>
+              <TouchableOpacity
+                style={styles.presetChip}
+                onPress={() => setNewCustomDomains(GAMING_REWARDED_AD_DOMAINS.slice(0, 8).join(', '))}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.presetChipText}>🎮 Game Ads</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.presetChip}
+                onPress={() => setNewCustomDomains(GOOGLE_ADMOB_DOMAINS.join(', '))}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.presetChipText}>📢 Google Ads</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.presetChip}
+                onPress={() =>
+                  setNewCustomDomains(
+                    [
+                      ...GAMING_REWARDED_AD_DOMAINS.slice(0, 6),
+                      ...GOOGLE_ADMOB_DOMAINS.slice(0, 2),
+                    ].join(', ')
+                  )
+                }
+                activeOpacity={0.7}
+              >
+                <Text style={styles.presetChipText}>⚡ All Networks</Text>
+              </TouchableOpacity>
+            </View>
             <TextInput
               style={styles.modalInput}
               placeholder="e.g. unityads.unity3d.com, applvr.com"
@@ -383,6 +491,84 @@ export const AppManagementScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Popular Games Library Modal */}
+      <Modal
+        visible={isCatalogModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsCatalogModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '82%', height: '82%' }]}>
+            <View style={styles.catalogModalHeader}>
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <Text style={styles.modalTitle}>Popular Games Library</Text>
+                <Text style={styles.modalSubtitle}>
+                  One-tap exclusion with pre-tuned ad mediation rules.
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.catalogCloseButton}
+                onPress={() => setIsCatalogModalVisible(false)}
+              >
+                <Text style={styles.catalogCloseButtonText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TextInput
+              style={styles.catalogSearchInput}
+              placeholder="Search games (e.g. 8 Ball, Injustice, Subway)..."
+              placeholderTextColor="#9CA3AF"
+              value={catalogSearch}
+              onChangeText={setCatalogSearch}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+
+            <FlatList
+              data={filteredCatalog}
+              keyExtractor={(item) => item.packageName}
+              showsVerticalScrollIndicator={false}
+              renderItem={({ item }) => {
+                const isAlreadyAdded = apps.some((a) => a.packageName === item.packageName);
+                return (
+                  <View style={styles.catalogItemRow}>
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Text style={styles.catalogItemName}>{item.appName}</Text>
+                        <View style={styles.categoryBadge}>
+                          <Text style={styles.categoryBadgeText}>{item.category}</Text>
+                        </View>
+                      </View>
+                      <Text style={styles.catalogItemSub} numberOfLines={1}>
+                        {item.packageName}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={[
+                        styles.catalogAddButton,
+                        isAlreadyAdded ? styles.catalogAddButtonDisabled : null,
+                      ]}
+                      onPress={() => !isAlreadyAdded && handleAddFromCatalog(item)}
+                      disabled={isAlreadyAdded}
+                    >
+                      <Text
+                        style={[
+                          styles.catalogAddButtonText,
+                          isAlreadyAdded ? styles.catalogAddButtonTextDisabled : null,
+                        ]}
+                      >
+                        {isAlreadyAdded ? 'Added ✓' : '+ Exclude'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -405,6 +591,20 @@ const styles = StyleSheet.create({
   headerButtons: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  catalogButton: {
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginRight: 6,
+  },
+  catalogButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4F46E5',
   },
   addButton: {
     backgroundColor: '#3B82F6',
@@ -433,6 +633,145 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#059669',
+  },
+  universalCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1.5,
+    borderColor: '#F59E0B',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+  },
+  universalLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 10,
+  },
+  universalIcon: {
+    fontSize: 24,
+    marginRight: 10,
+  },
+  universalTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#92400E',
+  },
+  universalSubtitle: {
+    fontSize: 11,
+    color: '#B45309',
+    marginTop: 2,
+    lineHeight: 15,
+  },
+  proBadge: {
+    backgroundColor: '#F59E0B',
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    marginLeft: 6,
+  },
+  proBadgeText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+  quickPresetRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 8,
+  },
+  presetChip: {
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  presetChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1D4ED8',
+  },
+  catalogModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  catalogCloseButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  catalogCloseButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#6B7280',
+  },
+  catalogSearchInput: {
+    height: 40,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    fontSize: 13,
+    color: '#111827',
+    marginBottom: 12,
+  },
+  catalogItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  catalogItemName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  categoryBadge: {
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 6,
+  },
+  categoryBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#6B7280',
+  },
+  catalogItemSub: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginTop: 2,
+  },
+  catalogAddButton: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  catalogAddButtonDisabled: {
+    backgroundColor: '#E5E7EB',
+  },
+  catalogAddButtonText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  catalogAddButtonTextDisabled: {
+    color: '#9CA3AF',
   },
   title: {
     fontSize: 20,

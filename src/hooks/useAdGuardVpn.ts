@@ -35,9 +35,11 @@ export function useAdGuardVpn(isActive: boolean = true) {
   const [isRunning, setIsRunning] = useState<boolean>(cachedIsRunning);
   const [stats, setStats] = useState<VpnStatistics>(cachedStats);
   const [recentLogs, setRecentLogs] = useState<QueryLogRecord[]>(cachedRecentLogs);
+  const [snoozeSeconds, setSnoozeSeconds] = useState<number>(0);
 
   const pendingBatchRef = useRef<QueryLogRecord[]>([]);
   const flushTimerRef = useRef<any>(null);
+  const snoozeTimerRef = useRef<any>(null);
 
   useEffect(() => {
     AsyncStorage.getItem('@aegis_vpn_is_running').then((val) => {
@@ -88,6 +90,54 @@ export function useAdGuardVpn(isActive: boolean = true) {
       Alert.alert('VPN Error', e.message || 'Failed to toggle VPN protection');
     }
   }, [isRunning, refreshState]);
+
+  const cancelSnooze = useCallback(async () => {
+    if (snoozeTimerRef.current) {
+      clearInterval(snoozeTimerRef.current);
+      snoozeTimerRef.current = null;
+    }
+    setSnoozeSeconds(0);
+    try {
+      await AdGuardVpn.startVpn();
+      cachedIsRunning = true;
+      setIsRunning(true);
+      refreshState();
+    } catch (e) {
+      console.error('[useAdGuardVpn] resume error:', e);
+    }
+  }, [refreshState]);
+
+  const snoozeVpn = useCallback(async (seconds: number) => {
+    try {
+      if (snoozeTimerRef.current) {
+        clearInterval(snoozeTimerRef.current);
+        snoozeTimerRef.current = null;
+      }
+      await AdGuardVpn.stopVpn();
+      cachedIsRunning = false;
+      setIsRunning(false);
+      setSnoozeSeconds(seconds);
+
+      snoozeTimerRef.current = setInterval(() => {
+        setSnoozeSeconds((prev) => {
+          if (prev <= 1) {
+            clearInterval(snoozeTimerRef.current);
+            snoozeTimerRef.current = null;
+            AdGuardVpn.startVpn().then(() => {
+              cachedIsRunning = true;
+              setIsRunning(true);
+              refreshState();
+            }).catch(() => {});
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } catch (e: any) {
+      console.error('[useAdGuardVpn] snooze error:', e);
+      Alert.alert('Error', e.message || 'Failed to snooze protection');
+    }
+  }, [refreshState]);
 
   const addCustomRule = useCallback(async (rule: string) => {
     try {
@@ -173,6 +223,10 @@ export function useAdGuardVpn(isActive: boolean = true) {
       if (subSingle && typeof subSingle.remove === 'function') {
         subSingle.remove();
       }
+      if (snoozeTimerRef.current) {
+        clearInterval(snoozeTimerRef.current);
+        snoozeTimerRef.current = null;
+      }
     };
   }, [isActive, refreshState]);
 
@@ -180,7 +234,10 @@ export function useAdGuardVpn(isActive: boolean = true) {
     isRunning,
     stats,
     recentLogs,
+    snoozeSeconds,
     toggleVpn,
+    snoozeVpn,
+    cancelSnooze,
     refreshState,
     addCustomRule,
     clearLogs,

@@ -85,7 +85,173 @@ export interface AdGuardVpnInterface {
   addCustomApp(app: AppManagementInfo, domains?: string[]): Promise<boolean>;
   setFamilyProtectionEnabled(enabled: boolean): Promise<boolean>;
   isFamilyProtectionEnabled(): Promise<boolean>;
+  setGameAdsBypassEnabled(enabled: boolean): Promise<boolean>;
+  isGameAdsBypassEnabled(): Promise<boolean>;
 }
+
+export const GAMING_REWARDED_AD_DOMAINS: string[] = [
+  'unityads.unity3d.com',
+  'unity3d.com',
+  'auction.unityads.unity3d.com',
+  'webview.unityads.unity3d.com',
+  'applvr.com',
+  'applovin.com',
+  'al-sdk.applovin.com',
+  'ironsrc.com',
+  'supersonicads.com',
+  'supersonic.com',
+  'is.com',
+  'vungle.com',
+  'liftoff.io',
+  'chartboost.com',
+  'mintegral.com',
+  'rayjump.com',
+  'tapjoy.com',
+  'tapjoyads.com',
+  'inmobi.com',
+  'fyber.com',
+  'inner-active.mobi',
+  'pangle.io',
+  'pangolin-sdk-toutiao.com',
+];
+
+export const GOOGLE_ADMOB_DOMAINS: string[] = [
+  'googleads.g.doubleclick.net',
+  'pubads.g.doubleclick.net',
+  'pagead2.googlesyndication.com',
+  'adservice.google.com',
+  'admob.com',
+];
+
+export interface PopularGameCatalogItem {
+  appName: string;
+  packageName: string;
+  category: string;
+  domains: string[];
+}
+
+export const POPULAR_GAMES_CATALOG: PopularGameCatalogItem[] = [
+  {
+    appName: 'Injustice 2',
+    packageName: 'com.wb.injustice2',
+    category: 'Action',
+    domains: [
+      'wbgames.com',
+      'injustice2mobile.com',
+      'wb.com',
+      'hydra.wbgames.com',
+      'supersonicads.com',
+      'ironsrc.com',
+      'unityads.unity3d.com',
+      'unity3d.com',
+      'applvr.com',
+      'applovin.com',
+      'googleads.g.doubleclick.net',
+      'pubads.g.doubleclick.net',
+    ],
+  },
+  {
+    appName: '8 Ball Pool',
+    packageName: 'com.miniclip.eightballpool',
+    category: 'Sports',
+    domains: [
+      'miniclip.com',
+      'mc-game-services.miniclip.com',
+      'game-analytics.miniclip.com',
+      'supersonicads.com',
+      'ironsrc.com',
+      'unityads.unity3d.com',
+      'unity3d.com',
+      'applvr.com',
+      'applovin.com',
+      'googleads.g.doubleclick.net',
+      'pubads.g.doubleclick.net',
+      'vungle.com',
+    ],
+  },
+  {
+    appName: 'Subway Surfers',
+    packageName: 'com.kiloo.subwaysurf',
+    category: 'Arcade',
+    domains: [
+      'sybogames.com',
+      'unityads.unity3d.com',
+      'applvr.com',
+      'applovin.com',
+      'ironsrc.com',
+      'supersonicads.com',
+      'googleads.g.doubleclick.net',
+    ],
+  },
+  {
+    appName: 'Candy Crush Saga',
+    packageName: 'com.king.candycrushsaga',
+    category: 'Casual',
+    domains: [
+      'king.com',
+      'midas.king.com',
+      'unityads.unity3d.com',
+      'applvr.com',
+      'applovin.com',
+      'ironsrc.com',
+      'googleads.g.doubleclick.net',
+    ],
+  },
+  {
+    appName: 'Roblox',
+    packageName: 'com.roblox.robloxmobile',
+    category: 'Simulation',
+    domains: ['roblox.com', 'rbxcdn.com'],
+  },
+  {
+    appName: 'Call of Duty: Mobile',
+    packageName: 'com.activision.callofduty.shooter',
+    category: 'Action',
+    domains: ['activision.com', 'callofduty.com', 'unityads.unity3d.com', 'applvr.com'],
+  },
+  {
+    appName: 'PUBG Mobile',
+    packageName: 'com.tencent.ig',
+    category: 'Action',
+    domains: ['pubgmobile.com', 'tencent.com', 'applvr.com', 'unityads.unity3d.com'],
+  },
+  {
+    appName: 'Brawl Stars',
+    packageName: 'com.supercell.brawlstars',
+    category: 'Action',
+    domains: ['supercell.com', 'supercellgames.com', 'unityads.unity3d.com'],
+  },
+  {
+    appName: 'Clash Royale',
+    packageName: 'com.supercell.clashroyale',
+    category: 'Strategy',
+    domains: ['supercell.com', 'supercellgames.com', 'unityads.unity3d.com'],
+  },
+  {
+    appName: 'EA Sports FC Mobile',
+    packageName: 'com.ea.gp.fifamobile',
+    category: 'Sports',
+    domains: ['ea.com', 'electronicarts.com', 'unityads.unity3d.com', 'applvr.com', 'googleads.g.doubleclick.net'],
+  },
+  {
+    appName: 'Monopoly GO!',
+    packageName: 'com.scopely.monopolygo',
+    category: 'Casual',
+    domains: ['scopely.com', 'unityads.unity3d.com', 'applvr.com', 'applovin.com', 'ironsrc.com', 'supersonicads.com'],
+  },
+  {
+    appName: 'Royal Match',
+    packageName: 'com.dreamgames.royalmatch',
+    category: 'Casual',
+    domains: ['dreamgames.com', 'applvr.com', 'applovin.com', 'unityads.unity3d.com'],
+  },
+  {
+    appName: 'Coin Master',
+    packageName: 'com.moonactive.coinmaster',
+    category: 'Casual',
+    domains: ['moonactive.net', 'applvr.com', 'applovin.com', 'ironsrc.com', 'supersonicads.com'],
+  },
+];
 
 export const KNOWN_APP_DOMAINS: Record<string, string[]> = {
   'com.wb.injustice2': [
@@ -93,24 +259,48 @@ export const KNOWN_APP_DOMAINS: Record<string, string[]> = {
     'injustice2mobile.com',
     'wb.com',
     'hydra.wbgames.com',
+    'supersonicads.com',
+    'ironsrc.com',
     'unityads.unity3d.com',
+    'unity3d.com',
     'applvr.com',
     'applovin.com',
-    'ironsrc.com',
+    'googleads.g.doubleclick.net',
+    'pubads.g.doubleclick.net',
   ],
   'com.miniclip.eightballpool': [
     'miniclip.com',
     'mc-game-services.miniclip.com',
     'game-analytics.miniclip.com',
+    'supersonicads.com',
+    'ironsrc.com',
+    'unityads.unity3d.com',
+    'unity3d.com',
+    'applvr.com',
+    'applovin.com',
+    'googleads.g.doubleclick.net',
+    'pubads.g.doubleclick.net',
+    'vungle.com',
+  ],
+  'com.roblox.robloxmobile': ['roblox.com', 'rbxcdn.com'],
+  'com.kiloo.subwaysurf': [
+    'sybogames.com',
     'unityads.unity3d.com',
     'applvr.com',
     'applovin.com',
     'ironsrc.com',
-    'vungle.com',
+    'supersonicads.com',
+    'googleads.g.doubleclick.net',
   ],
-  'com.roblox.robloxmobile': ['roblox.com', 'rbxcdn.com'],
-  'com.kiloo.subwaysurf': ['sybogames.com', 'unityads.unity3d.com', 'applvr.com', 'ironsrc.com'],
-  'com.king.candycrushsaga': ['king.com', 'midas.king.com', 'unityads.unity3d.com', 'applvr.com'],
+  'com.king.candycrushsaga': [
+    'king.com',
+    'midas.king.com',
+    'unityads.unity3d.com',
+    'applvr.com',
+    'applovin.com',
+    'ironsrc.com',
+    'googleads.g.doubleclick.net',
+  ],
 };
 
 // ---------------------------------------------------------
@@ -128,6 +318,7 @@ const STORAGE_KEYS = {
   PARENTAL_LOCK: '@aegis_vpn_parental_lock',
   CUSTOM_DOMAINS: '@aegis_vpn_app_custom_domains',
   FAMILY_PROTECTION: '@aegis_vpn_family_protection',
+  GAME_ADS_BYPASS: '@aegis_vpn_game_ads_bypass',
 };
 
 // ---------------------------------------------------------
@@ -191,6 +382,7 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
   private safeSearch = false;
   private parentalLock = false;
   private familyProtection = false;
+  private gameAdsBypass = false;
 
   private userRulesList: string[] = [
     '! Aegis Guard User Rules',
@@ -365,6 +557,7 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
             storedLock,
             storedCustomDomains,
             storedFamily,
+            storedGameAdsBypass,
           ] = await Promise.all([
             AsyncStorage.getItem(STORAGE_KEYS.IS_RUNNING),
             AsyncStorage.getItem(STORAGE_KEYS.STATS),
@@ -377,6 +570,7 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
             AsyncStorage.getItem(STORAGE_KEYS.PARENTAL_LOCK),
             AsyncStorage.getItem(STORAGE_KEYS.CUSTOM_DOMAINS),
             AsyncStorage.getItem(STORAGE_KEYS.FAMILY_PROTECTION),
+            AsyncStorage.getItem(STORAGE_KEYS.GAME_ADS_BYPASS),
           ]);
 
           if (storedRunning !== null) {
@@ -433,6 +627,9 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
           }
           if (storedFamily !== null) {
             this.familyProtection = storedFamily === 'true';
+          }
+          if (storedGameAdsBypass !== null) {
+            this.gameAdsBypass = storedGameAdsBypass === 'true';
           }
 
           // Sync excluded domains to native iOS/Android layer
@@ -591,6 +788,9 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
 
   public getActiveExcludedDomains(): string[] {
     const domainSet = new Set<string>();
+    if (this.gameAdsBypass) {
+      GAMING_REWARDED_AD_DOMAINS.forEach((d) => domainSet.add(d));
+    }
     for (const app of this.apps) {
       if (app.isVpnBypassed) {
         const domains = this.appCustomDomains[app.packageName] || KNOWN_APP_DOMAINS[app.packageName] || [];
@@ -598,6 +798,20 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
       }
     }
     return Array.from(domainSet);
+  }
+
+  async setGameAdsBypassEnabled(enabled: boolean): Promise<boolean> {
+    await this.ensureInitialized();
+    this.gameAdsBypass = enabled;
+    await AsyncStorage.setItem(STORAGE_KEYS.GAME_ADS_BYPASS, String(enabled));
+    const activeDomains = this.getActiveExcludedDomains();
+    await this.setExcludedDomains(activeDomains);
+    return true;
+  }
+
+  async isGameAdsBypassEnabled(): Promise<boolean> {
+    await this.ensureInitialized();
+    return this.gameAdsBypass;
   }
 
   async setExcludedDomains(domains: string[]): Promise<boolean> {
@@ -921,6 +1135,8 @@ export const AdGuardVpn: AdGuardVpnInterface = new Proxy(
               fallbackEngine.stopVpn().catch(() => {});
             } else if (prop === 'setFamilyProtectionEnabled') {
               fallbackEngine.setFamilyProtectionEnabled(args[0]).catch(() => {});
+            } else if (prop === 'setGameAdsBypassEnabled') {
+              fallbackEngine.setGameAdsBypassEnabled(args[0]).catch(() => {});
             } else if (prop === 'setExcludedDomains') {
               fallbackEngine.setExcludedDomains(args[0]).catch(() => {});
             }
