@@ -32,9 +32,21 @@ public class AdGuardVpnModule: Module {
           return
         }
 
+        let isPremium = UserDefaults.standard.object(forKey: "aegis_is_premium") as? Bool ?? true
         let isFamily = UserDefaults.standard.bool(forKey: "aegis_family_protection")
-        let servers = isFamily ? ["94.140.14.15", "94.140.15.16"] : ["94.140.14.14", "94.140.15.15"]
-        let dohURL = isFamily ? "https://dns-family.adguard-dns.com/dns-query" : "https://dns.adguard-dns.com/dns-query"
+        let servers: [String]
+        let dohURL: String
+
+        if isPremium {
+          servers = isFamily ? ["94.140.14.15", "94.140.15.16"] : ["94.140.14.14", "94.140.15.15"]
+          dohURL = isFamily ? "https://dns-family.adguard-dns.com/dns-query" : "https://dns.adguard-dns.com/dns-query"
+          manager.localizedDescription = "Aegis Guard DNS"
+        } else {
+          // Basic Mode: Encrypted DNS privacy without app ad blocking
+          servers = ["1.1.1.1", "1.0.0.1"]
+          dohURL = "https://cloudflare-dns.com/dns-query"
+          manager.localizedDescription = "Aegis Guard DNS (Basic Mode)"
+        }
 
         let dohSettings = NEDNSOverHTTPSSettings(servers: servers)
         dohSettings.serverURL = URL(string: dohURL)
@@ -157,6 +169,44 @@ public class AdGuardVpnModule: Module {
 
         let servers = enabled ? ["94.140.14.15", "94.140.15.16"] : ["94.140.14.14", "94.140.15.15"]
         let dohURL = enabled ? "https://dns-family.adguard-dns.com/dns-query" : "https://dns.adguard-dns.com/dns-query"
+
+        let dohSettings = NEDNSOverHTTPSSettings(servers: servers)
+        dohSettings.serverURL = URL(string: dohURL)
+        manager.dnsSettings = dohSettings
+
+        if manager.isEnabled {
+          manager.saveToPreferences { _ in
+            promise.resolve(true)
+          }
+        } else {
+          promise.resolve(true)
+        }
+      }
+    }
+
+    AsyncFunction("setLicenseState") { (isPremium: Bool, promise: Promise) in
+      UserDefaults.standard.set(isPremium, forKey: "aegis_is_premium")
+
+      let manager = NEDNSSettingsManager.shared()
+      manager.loadFromPreferences { loadError in
+        guard loadError == nil else {
+          promise.resolve(true)
+          return
+        }
+
+        let isFamily = UserDefaults.standard.bool(forKey: "aegis_family_protection")
+        let servers: [String]
+        let dohURL: String
+
+        if isPremium {
+          servers = isFamily ? ["94.140.14.15", "94.140.15.16"] : ["94.140.14.14", "94.140.15.15"]
+          dohURL = isFamily ? "https://dns-family.adguard-dns.com/dns-query" : "https://dns.adguard-dns.com/dns-query"
+          manager.localizedDescription = "Aegis Guard DNS"
+        } else {
+          servers = ["1.1.1.1", "1.0.0.1"]
+          dohURL = "https://cloudflare-dns.com/dns-query"
+          manager.localizedDescription = "Aegis Guard DNS (Basic Mode)"
+        }
 
         let dohSettings = NEDNSOverHTTPSSettings(servers: servers)
         dohSettings.serverURL = URL(string: dohURL)

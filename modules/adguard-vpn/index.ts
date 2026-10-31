@@ -87,6 +87,8 @@ export interface AdGuardVpnInterface {
   isFamilyProtectionEnabled(): Promise<boolean>;
   setGameAdsBypassEnabled(enabled: boolean): Promise<boolean>;
   isGameAdsBypassEnabled(): Promise<boolean>;
+  setLicenseState(isPremium: boolean): Promise<boolean>;
+  isLicensePremium(): Promise<boolean>;
 }
 
 export const GAMING_REWARDED_AD_DOMAINS: string[] = [
@@ -319,6 +321,7 @@ const STORAGE_KEYS = {
   CUSTOM_DOMAINS: '@aegis_vpn_app_custom_domains',
   FAMILY_PROTECTION: '@aegis_vpn_family_protection',
   GAME_ADS_BYPASS: '@aegis_vpn_game_ads_bypass',
+  IS_PREMIUM: '@aegis_vpn_is_premium',
 };
 
 // ---------------------------------------------------------
@@ -383,6 +386,7 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
   private parentalLock = false;
   private familyProtection = false;
   private gameAdsBypass = false;
+  private isPremium = true;
 
   private userRulesList: string[] = [
     '! Aegis Guard User Rules',
@@ -558,6 +562,7 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
             storedCustomDomains,
             storedFamily,
             storedGameAdsBypass,
+            storedIsPremium,
           ] = await Promise.all([
             AsyncStorage.getItem(STORAGE_KEYS.IS_RUNNING),
             AsyncStorage.getItem(STORAGE_KEYS.STATS),
@@ -571,6 +576,7 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
             AsyncStorage.getItem(STORAGE_KEYS.CUSTOM_DOMAINS),
             AsyncStorage.getItem(STORAGE_KEYS.FAMILY_PROTECTION),
             AsyncStorage.getItem(STORAGE_KEYS.GAME_ADS_BYPASS),
+            AsyncStorage.getItem(STORAGE_KEYS.IS_PREMIUM),
           ]);
 
           if (storedRunning !== null) {
@@ -630,6 +636,9 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
           }
           if (storedGameAdsBypass !== null) {
             this.gameAdsBypass = storedGameAdsBypass === 'true';
+          }
+          if (storedIsPremium !== null) {
+            this.isPremium = storedIsPremium === 'true';
           }
 
           // Sync excluded domains to native iOS/Android layer
@@ -814,6 +823,25 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
     return this.gameAdsBypass;
   }
 
+  async setLicenseState(isPremium: boolean): Promise<boolean> {
+    await this.ensureInitialized();
+    this.isPremium = isPremium;
+    await AsyncStorage.setItem(STORAGE_KEYS.IS_PREMIUM, String(isPremium));
+    if (resolvedNativeModule && typeof resolvedNativeModule.setLicenseState === 'function') {
+      try {
+        await resolvedNativeModule.setLicenseState(isPremium);
+      } catch (e) {
+        console.warn('[AdGuardVpn] Native setLicenseState error:', e);
+      }
+    }
+    return true;
+  }
+
+  async isLicensePremium(): Promise<boolean> {
+    await this.ensureInitialized();
+    return this.isPremium;
+  }
+
   async setExcludedDomains(domains: string[]): Promise<boolean> {
     if (resolvedNativeModule && typeof resolvedNativeModule.setExcludedDomains === 'function') {
       try {
@@ -972,6 +1000,18 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
   async testDomainFilter(domain: string): Promise<DomainFilterTestResult> {
     await this.ensureInitialized();
     const d = domain.toLowerCase();
+
+    // 0. Basic Mode (Trial Expired & Not Purchased)
+    // App-level ad blocking and family protection are disabled on basic mode
+    if (!this.isPremium) {
+      return {
+        domain,
+        isBlocked: false,
+        matchedRule: '',
+        isRewrite: false,
+        rewriteIp: '',
+      };
+    }
 
     // 1. SafeSearch Rewrites
     if (this.safeSearch) {
@@ -1137,6 +1177,8 @@ export const AdGuardVpn: AdGuardVpnInterface = new Proxy(
               fallbackEngine.setFamilyProtectionEnabled(args[0]).catch(() => {});
             } else if (prop === 'setGameAdsBypassEnabled') {
               fallbackEngine.setGameAdsBypassEnabled(args[0]).catch(() => {});
+            } else if (prop === 'setLicenseState') {
+              fallbackEngine.setLicenseState(args[0]).catch(() => {});
             } else if (prop === 'setExcludedDomains') {
               fallbackEngine.setExcludedDomains(args[0]).catch(() => {});
             }

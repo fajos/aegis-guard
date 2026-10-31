@@ -12,6 +12,8 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useLicense } from '../hooks/useLicense';
+import { LifetimePaywallModal } from '../components/LifetimePaywallModal';
 import {
   AdGuardVpn,
   AppManagementInfo,
@@ -25,6 +27,10 @@ import {
 let cachedApps: AppManagementInfo[] = [];
 
 export const AppManagementScreen: React.FC = () => {
+  const { isPremium, trialExpired } = useLicense();
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const [paywallReason, setPaywallReason] = useState<string | undefined>(undefined);
+
   const [apps, setApps] = useState<AppManagementInfo[]>(cachedApps);
   const [search, setSearch] = useState('');
   const [showSystemApps, setShowSystemApps] = useState(false);
@@ -71,6 +77,11 @@ export const AppManagementScreen: React.FC = () => {
   }, []);
 
   const handleToggleGameAdsBypass = async (val: boolean) => {
+    if (trialExpired) {
+      setPaywallReason('Universal Game Rewarded Ad Bypass is a Lifetime Pro feature.');
+      setPaywallVisible(true);
+      return;
+    }
     try {
       setIsGameAdsBypass(val);
       await AdGuardVpn.setGameAdsBypassEnabled(val);
@@ -80,6 +91,11 @@ export const AppManagementScreen: React.FC = () => {
   };
 
   const handleAddFromCatalog = async (item: PopularGameCatalogItem) => {
+    if (trialExpired) {
+      setPaywallReason('Popular Games Library split-tunneling is a Lifetime Pro feature.');
+      setPaywallVisible(true);
+      return;
+    }
     const newApp: AppManagementInfo = {
       appName: item.appName,
       packageName: item.packageName,
@@ -123,6 +139,11 @@ export const AppManagementScreen: React.FC = () => {
   };
 
   const handleAddCustomApp = async () => {
+    if (trialExpired) {
+      setPaywallReason('Custom App & Domain Exclusions are a Lifetime Pro feature.');
+      setPaywallVisible(true);
+      return;
+    }
     const name = newAppName.trim();
     if (!name) {
       Alert.alert('Required', 'Please enter a name for the game or app.');
@@ -224,14 +245,28 @@ export const AppManagementScreen: React.FC = () => {
           <View style={styles.headerButtons}>
             <TouchableOpacity
               style={styles.catalogButton}
-              onPress={() => setIsCatalogModalVisible(true)}
+              onPress={() => {
+                if (trialExpired) {
+                  setPaywallReason('Popular Games Library requires Lifetime Pro.');
+                  setPaywallVisible(true);
+                  return;
+                }
+                setIsCatalogModalVisible(true);
+              }}
               activeOpacity={0.7}
             >
               <Text style={styles.catalogButtonText}>🎮 Library</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.addButton}
-              onPress={() => setIsAddModalVisible(true)}
+              onPress={() => {
+                if (trialExpired) {
+                  setPaywallReason('App exclusions and split-tunneling require Lifetime Pro.');
+                  setPaywallVisible(true);
+                  return;
+                }
+                setIsAddModalVisible(true);
+              }}
               activeOpacity={0.7}
             >
               <Text style={styles.addButtonText}>+ Add</Text>
@@ -251,6 +286,26 @@ export const AppManagementScreen: React.FC = () => {
         </View>
       </View>
 
+      {/* Trial Expired Alert Callout */}
+      {trialExpired ? (
+        <TouchableOpacity
+          style={styles.expiredNoticeCard}
+          onPress={() => {
+            setPaywallReason('Trial ended: In-app ad blocking & exclusions paused.');
+            setPaywallVisible(true);
+          }}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.expiredNoticeIcon}>⚠️</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.expiredNoticeTitle}>Basic Mode Active (Trial Expired)</Text>
+            <Text style={styles.expiredNoticeSub}>
+              In-app ad blocking in GSE IPTV & exclusions are paused. Tap to unlock Lifetime Pro ($4.99).
+            </Text>
+          </View>
+        </TouchableOpacity>
+      ) : null}
+
       {/* Universal Rewarded Ad Bypass Card */}
       <View style={styles.universalCard}>
         <View style={styles.universalLeft}>
@@ -258,8 +313,8 @@ export const AppManagementScreen: React.FC = () => {
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <Text style={styles.universalTitle}>Allow Rewarded Ads in All Games</Text>
-              <View style={styles.proBadge}>
-                <Text style={styles.proBadgeText}>1-TAP FIX</Text>
+              <View style={[styles.proBadge, trialExpired && { backgroundColor: '#DC2626' }]}>
+                <Text style={styles.proBadgeText}>{trialExpired ? 'PRO LOCKED' : '1-TAP FIX'}</Text>
               </View>
             </View>
             <Text style={styles.universalSubtitle}>
@@ -569,6 +624,13 @@ export const AppManagementScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Lifetime Pro Paywall Modal */}
+      <LifetimePaywallModal
+        visible={paywallVisible}
+        onClose={() => setPaywallVisible(false)}
+        reason={paywallReason}
+      />
     </SafeAreaView>
   );
 };
@@ -633,6 +695,32 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#059669',
+  },
+  expiredNoticeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1.5,
+    borderColor: '#FECACA',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  expiredNoticeIcon: {
+    fontSize: 20,
+    marginRight: 10,
+  },
+  expiredNoticeTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#991B1B',
+  },
+  expiredNoticeSub: {
+    fontSize: 11,
+    color: '#B91C1C',
+    marginTop: 1,
+    lineHeight: 14,
   },
   universalCard: {
     flexDirection: 'row',

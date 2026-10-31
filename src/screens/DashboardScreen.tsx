@@ -10,8 +10,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useAdGuardVpn } from '../hooks/useAdGuardVpn';
+import { useLicense } from '../hooks/useLicense';
 import { AdGuardVpn } from '../native/AdGuardVpnModule';
 import { ShieldAuditModal } from '../components/ShieldAuditModal';
+import { LifetimePaywallModal } from '../components/LifetimePaywallModal';
 import { authenticateWithBiometrics } from '../utils/security';
 
 interface DashboardScreenProps {
@@ -22,12 +24,24 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
   isActive = true,
 }) => {
   const { isRunning, stats, snoozeSeconds, toggleVpn, snoozeVpn, cancelSnooze } = useAdGuardVpn(isActive);
+  const { isPremium, isTrialActive, isLifetimePurchased, trialExpired, daysRemaining, hoursRemaining } = useLicense();
   const [auditModalVisible, setAuditModalVisible] = useState(false);
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const [paywallReason, setPaywallReason] = useState<string | undefined>(undefined);
 
   const formatSnoozeTime = (sec: number) => {
     const m = Math.floor(sec / 60);
     const s = sec % 60;
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const handleSnooze = (seconds: number) => {
+    if (trialExpired) {
+      setPaywallReason('Game Mode & rewarded ad controls are a Lifetime Pro feature.');
+      setPaywallVisible(true);
+      return;
+    }
+    snoozeVpn(seconds);
   };
 
   const handleToggleVpn = async () => {
@@ -64,6 +78,73 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
           <Text style={styles.headerSubtitle}>Local VPN DNS Engine</Text>
         </View>
 
+        {/* Trial & License Status Banner */}
+        {isLifetimePurchased ? (
+          <View style={styles.lifetimeBanner}>
+            <Text style={styles.lifetimeBannerIcon}>👑</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.lifetimeBannerTitle}>Lifetime Pro Active</Text>
+              <Text style={styles.lifetimeBannerSub}>Full in-app ad blocking & premium features unlocked</Text>
+            </View>
+          </View>
+        ) : isTrialActive ? (
+          <TouchableOpacity
+            style={styles.trialBanner}
+            onPress={() => {
+              setPaywallReason(undefined);
+              setPaywallVisible(true);
+            }}
+            activeOpacity={0.8}
+          >
+            <View style={styles.trialLeft}>
+              <Text style={styles.trialIcon}>✨</Text>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={styles.trialTitle}>3-Day Free Trial Active</Text>
+                  <View style={styles.trialTimeBadge}>
+                    <Text style={styles.trialTimeText}>
+                      {daysRemaining > 0 ? `${daysRemaining}d ${hoursRemaining}h left` : `${hoursRemaining}h left`}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.trialSub}>
+                  All apps & GSE IPTV are 100% ad-free during trial.
+                </Text>
+              </View>
+            </View>
+            <View style={styles.upgradeButtonSmall}>
+              <Text style={styles.upgradeButtonSmallText}>Lifetime $4.99</Text>
+            </View>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.expiredBanner}
+            onPress={() => {
+              setPaywallReason('Trial ended: In-app ad blocking paused.');
+              setPaywallVisible(true);
+            }}
+            activeOpacity={0.8}
+          >
+            <View style={styles.expiredLeft}>
+              <Text style={styles.expiredIcon}>⚠️</Text>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={styles.expiredTitle}>3-Day Trial Ended (Basic Mode)</Text>
+                  <View style={styles.expiredBadge}>
+                    <Text style={styles.expiredBadgeText}>ADS ACTIVE</Text>
+                  </View>
+                </View>
+                <Text style={styles.expiredSub}>
+                  In-app ad blocking is paused. Tap to unlock Lifetime Pro.
+                </Text>
+              </View>
+            </View>
+            <View style={styles.expiredUpgradeButton}>
+              <Text style={styles.expiredUpgradeText}>$4.99</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
         {/* Main Status Hero Card */}
         <View
           style={[
@@ -75,16 +156,20 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
             <View
               style={[
                 styles.statusDot,
-                { backgroundColor: isRunning ? '#10B981' : '#9CA3AF' },
+                { backgroundColor: isRunning ? (isPremium ? '#10B981' : '#F59E0B') : '#9CA3AF' },
               ]}
             />
             <View style={styles.statusTextContainer}>
               <Text style={styles.statusTitle}>
-                {isRunning ? 'Protection is Enabled' : 'Protection is Paused'}
+                {isRunning
+                  ? (isPremium ? 'Protection is Enabled' : 'Basic Privacy Mode Active')
+                  : 'Protection is Paused'}
               </Text>
               <Text style={styles.statusSubtitle}>
                 {isRunning
-                  ? `Local VPN active • ${stats.ruleCount.toLocaleString()} rules loaded`
+                  ? (isPremium
+                      ? `Local VPN active • ${stats.ruleCount.toLocaleString()} rules loaded`
+                      : 'Basic Encrypted DNS active • In-app ad blocking paused')
                   : 'Tap switch to protect against ads and trackers'}
               </Text>
             </View>
@@ -93,7 +178,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
             value={isRunning}
             onValueChange={handleToggleVpn}
             trackColor={{ false: '#D1D5DB', true: '#6EE7B7' }}
-            thumbColor={isRunning ? '#10B981' : '#F3F4F6'}
+            thumbColor={isRunning ? (isPremium ? '#10B981' : '#F59E0B') : '#F3F4F6'}
             style={styles.switchControl}
           />
         </View>
@@ -133,21 +218,21 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
             <View style={styles.gameModeChips}>
               <TouchableOpacity
                 style={styles.gameModeChip}
-                onPress={() => snoozeVpn(60)}
+                onPress={() => handleSnooze(60)}
                 activeOpacity={0.7}
               >
                 <Text style={styles.gameModeChipText}>⚡ 1 Min</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.gameModeChip}
-                onPress={() => snoozeVpn(120)}
+                onPress={() => handleSnooze(120)}
                 activeOpacity={0.7}
               >
                 <Text style={styles.gameModeChipText}>⚡ 2 Mins</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.gameModeChip}
-                onPress={() => snoozeVpn(300)}
+                onPress={() => handleSnooze(300)}
                 activeOpacity={0.7}
               >
                 <Text style={styles.gameModeChipText}>⚡ 5 Mins</Text>
@@ -267,6 +352,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
       <ShieldAuditModal
         visible={auditModalVisible}
         onClose={() => setAuditModalVisible(false)}
+      />
+
+      {/* Lifetime Pro Paywall Modal */}
+      <LifetimePaywallModal
+        visible={paywallVisible}
+        onClose={() => setPaywallVisible(false)}
+        reason={paywallReason}
       />
     </SafeAreaView>
   );
@@ -577,5 +669,142 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#374151',
+  },
+  lifetimeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  lifetimeBannerIcon: {
+    fontSize: 20,
+    marginRight: 10,
+  },
+  lifetimeBannerTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#92400E',
+  },
+  lifetimeBannerSub: {
+    fontSize: 11,
+    color: '#B45309',
+    marginTop: 1,
+  },
+  trialBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1.5,
+    borderColor: '#BFDBFE',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  trialLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
+  trialIcon: {
+    fontSize: 20,
+    marginRight: 8,
+  },
+  trialTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#1E40AF',
+  },
+  trialTimeBadge: {
+    backgroundColor: '#DBEAFE',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    marginLeft: 6,
+  },
+  trialTimeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#1D4ED8',
+  },
+  trialSub: {
+    fontSize: 11,
+    color: '#3B82F6',
+    marginTop: 2,
+    lineHeight: 14,
+  },
+  upgradeButtonSmall: {
+    backgroundColor: '#2563EB',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  upgradeButtonSmallText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  expiredBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1.5,
+    borderColor: '#FECACA',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  expiredLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
+  expiredIcon: {
+    fontSize: 20,
+    marginRight: 8,
+  },
+  expiredTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#991B1B',
+  },
+  expiredBadge: {
+    backgroundColor: '#FEE2E2',
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    marginLeft: 6,
+  },
+  expiredBadgeText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#DC2626',
+  },
+  expiredSub: {
+    fontSize: 11,
+    color: '#B91C1C',
+    marginTop: 2,
+    lineHeight: 14,
+  },
+  expiredUpgradeButton: {
+    backgroundColor: '#DC2626',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  expiredUpgradeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
   },
 });
