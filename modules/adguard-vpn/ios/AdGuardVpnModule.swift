@@ -2,6 +2,29 @@ import ExpoModulesCore
 import NetworkExtension
 
 public class AdGuardVpnModule: Module {
+  private let criticalAdDomains: [String] = [
+    "googleads.g.doubleclick.net",
+    "pubads.g.doubleclick.net",
+    "pagead2.googlesyndication.com",
+    "adservice.google.com",
+    "doubleclick.net",
+    "googlesyndication.com",
+    "app-measurement.com",
+    "google-analytics.com"
+  ]
+
+  private func sanitizeDomains(_ domains: [String]) -> [String] {
+    return domains.filter { domain in
+      let lower = domain.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+      for cad in criticalAdDomains {
+        if lower == cad || lower.hasSuffix("." + cad) {
+          return false
+        }
+      }
+      return true
+    }
+  }
+
   public func definition() -> ModuleDefinition {
     Name("AdGuardVpnModule")
 
@@ -56,7 +79,11 @@ public class AdGuardVpnModule: Module {
 
         // Build on-demand rules: exception rules (.neverConnect) + connect rule
         var rules: [NEOnDemandRule] = []
-        let excluded = UserDefaults.standard.stringArray(forKey: "aegis_excluded_domains") ?? []
+        let rawExcluded = UserDefaults.standard.stringArray(forKey: "aegis_excluded_domains") ?? []
+        let excluded = self.sanitizeDomains(rawExcluded)
+        if excluded != rawExcluded {
+          UserDefaults.standard.set(excluded, forKey: "aegis_excluded_domains")
+        }
         if !excluded.isEmpty {
           var allMatchDomains: [String] = []
           for d in excluded {
@@ -111,7 +138,8 @@ public class AdGuardVpnModule: Module {
     }
 
     AsyncFunction("setExcludedDomains") { (domains: [String], promise: Promise) in
-      UserDefaults.standard.set(domains, forKey: "aegis_excluded_domains")
+      let safeDomains = self.sanitizeDomains(domains)
+      UserDefaults.standard.set(safeDomains, forKey: "aegis_excluded_domains")
 
       let manager = NEDNSSettingsManager.shared()
       manager.loadFromPreferences { loadError in
@@ -123,9 +151,9 @@ public class AdGuardVpnModule: Module {
         let isPaused = manager.onDemandRules?.first is NEOnDemandRuleDisconnect
         if manager.isEnabled && !isPaused {
           var rules: [NEOnDemandRule] = []
-          if !domains.isEmpty {
+          if !safeDomains.isEmpty {
             var allMatchDomains: [String] = []
-            for d in domains {
+            for d in safeDomains {
               allMatchDomains.append(d)
               if !d.hasPrefix("*.") {
                 allMatchDomains.append("*." + d)

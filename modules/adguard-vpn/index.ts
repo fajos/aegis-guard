@@ -125,6 +125,22 @@ export const GOOGLE_ADMOB_DOMAINS: string[] = [
   'admob.com',
 ];
 
+/**
+ * Core commercial ad networks that MUST NEVER be bypassed device-wide.
+ * On iOS, NEEvaluateConnectionRule (.neverConnect) is system-wide.
+ * Whitelisting these would break ad blocking in GSE Smart IPTV and all other apps!
+ */
+export const CRITICAL_AD_DOMAINS: string[] = [
+  'googleads.g.doubleclick.net',
+  'pubads.g.doubleclick.net',
+  'pagead2.googlesyndication.com',
+  'adservice.google.com',
+  'doubleclick.net',
+  'googlesyndication.com',
+  'app-measurement.com',
+  'google-analytics.com',
+];
+
 export interface PopularGameCatalogItem {
   appName: string;
   packageName: string;
@@ -148,8 +164,6 @@ export const POPULAR_GAMES_CATALOG: PopularGameCatalogItem[] = [
       'unity3d.com',
       'applvr.com',
       'applovin.com',
-      'googleads.g.doubleclick.net',
-      'pubads.g.doubleclick.net',
     ],
   },
   {
@@ -166,8 +180,6 @@ export const POPULAR_GAMES_CATALOG: PopularGameCatalogItem[] = [
       'unity3d.com',
       'applvr.com',
       'applovin.com',
-      'googleads.g.doubleclick.net',
-      'pubads.g.doubleclick.net',
       'vungle.com',
     ],
   },
@@ -182,7 +194,6 @@ export const POPULAR_GAMES_CATALOG: PopularGameCatalogItem[] = [
       'applovin.com',
       'ironsrc.com',
       'supersonicads.com',
-      'googleads.g.doubleclick.net',
     ],
   },
   {
@@ -196,7 +207,6 @@ export const POPULAR_GAMES_CATALOG: PopularGameCatalogItem[] = [
       'applvr.com',
       'applovin.com',
       'ironsrc.com',
-      'googleads.g.doubleclick.net',
     ],
   },
   {
@@ -233,7 +243,7 @@ export const POPULAR_GAMES_CATALOG: PopularGameCatalogItem[] = [
     appName: 'EA Sports FC Mobile',
     packageName: 'com.ea.gp.fifamobile',
     category: 'Sports',
-    domains: ['ea.com', 'electronicarts.com', 'unityads.unity3d.com', 'applvr.com', 'googleads.g.doubleclick.net'],
+    domains: ['ea.com', 'electronicarts.com', 'unityads.unity3d.com', 'applvr.com'],
   },
   {
     appName: 'Monopoly GO!',
@@ -267,8 +277,6 @@ export const KNOWN_APP_DOMAINS: Record<string, string[]> = {
     'unity3d.com',
     'applvr.com',
     'applovin.com',
-    'googleads.g.doubleclick.net',
-    'pubads.g.doubleclick.net',
   ],
   'com.miniclip.eightballpool': [
     'miniclip.com',
@@ -280,8 +288,6 @@ export const KNOWN_APP_DOMAINS: Record<string, string[]> = {
     'unity3d.com',
     'applvr.com',
     'applovin.com',
-    'googleads.g.doubleclick.net',
-    'pubads.g.doubleclick.net',
     'vungle.com',
   ],
   'com.roblox.robloxmobile': ['roblox.com', 'rbxcdn.com'],
@@ -292,7 +298,6 @@ export const KNOWN_APP_DOMAINS: Record<string, string[]> = {
     'applovin.com',
     'ironsrc.com',
     'supersonicads.com',
-    'googleads.g.doubleclick.net',
   ],
   'com.king.candycrushsaga': [
     'king.com',
@@ -301,7 +306,6 @@ export const KNOWN_APP_DOMAINS: Record<string, string[]> = {
     'applvr.com',
     'applovin.com',
     'ironsrc.com',
-    'googleads.g.doubleclick.net',
   ],
 };
 
@@ -456,8 +460,8 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
   private appCustomDomains: Record<string, string[]> = {};
 
   private apps: AppManagementInfo[] = [
-    { appName: 'Injustice 2', packageName: 'com.wb.injustice2', isSystemApp: false, isFiltered: false, isVpnBypassed: true },
-    { appName: '8 Ball Pool', packageName: 'com.miniclip.eightballpool', isSystemApp: false, isFiltered: false, isVpnBypassed: true },
+    { appName: 'Injustice 2', packageName: 'com.wb.injustice2', isSystemApp: false, isFiltered: true, isVpnBypassed: false },
+    { appName: '8 Ball Pool', packageName: 'com.miniclip.eightballpool', isSystemApp: false, isFiltered: true, isVpnBypassed: false },
     { appName: 'GSE Smart IPTV', packageName: 'com.droidpro.gseiptv', isSystemApp: false, isFiltered: true, isVpnBypassed: false },
     { appName: 'Roblox', packageName: 'com.roblox.robloxmobile', isSystemApp: false, isFiltered: true, isVpnBypassed: false },
     { appName: 'Subway Surfers', packageName: 'com.kiloo.subwaysurf', isSystemApp: false, isFiltered: true, isVpnBypassed: false },
@@ -603,8 +607,18 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
               // Ensure default games are present even if an older cached list was saved
               const mergedApps = [...loadedApps];
               for (const defaultApp of this.apps) {
-                if (!mergedApps.some((a) => a.packageName === defaultApp.packageName)) {
+                const existing = mergedApps.find((a) => a.packageName === defaultApp.packageName);
+                if (!existing) {
                   mergedApps.push(defaultApp);
+                } else if (
+                  defaultApp.packageName === 'com.wb.injustice2' ||
+                  defaultApp.packageName === 'com.miniclip.eightballpool'
+                ) {
+                  // Ensure games previously defaulted to bypassed in earlier test runs are reset to protected
+                  if (existing.isVpnBypassed && !existing.isFiltered) {
+                    existing.isVpnBypassed = false;
+                    existing.isFiltered = true;
+                  }
                 }
               }
               this.apps = mergedApps;
@@ -613,6 +627,13 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
           if (storedCustomDomains) {
             try {
               this.appCustomDomains = JSON.parse(storedCustomDomains);
+              // Scrub any CRITICAL_AD_DOMAINS from cached appCustomDomains
+              for (const pkg of Object.keys(this.appCustomDomains)) {
+                this.appCustomDomains[pkg] = (this.appCustomDomains[pkg] || []).filter((d) => {
+                  const lower = d.toLowerCase().trim();
+                  return !CRITICAL_AD_DOMAINS.some((cad) => lower === cad || lower.endsWith('.' + cad));
+                });
+              }
             } catch (e) {}
           }
           if (storedLogs) {
@@ -806,7 +827,15 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
         domains.forEach((d) => domainSet.add(d));
       }
     }
-    return Array.from(domainSet);
+    // Strictly strip out any core commercial ad networks (Google AdMob, etc.)
+    // to guarantee iOS NEEvaluateConnectionRule (.neverConnect) NEVER bypasses encrypted DNS
+    // for ads in apps like GSE Smart IPTV!
+    return Array.from(domainSet).filter((domain) => {
+      const lower = domain.toLowerCase().trim();
+      return !CRITICAL_AD_DOMAINS.some(
+        (cad) => lower === cad || lower.endsWith('.' + cad)
+      );
+    });
   }
 
   async setGameAdsBypassEnabled(enabled: boolean): Promise<boolean> {

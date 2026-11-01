@@ -2,10 +2,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AdGuardVpn } from '../native/AdGuardVpnModule';
 
 export const TRIAL_DURATION_MS = 3 * 24 * 60 * 60 * 1000; // 3 Days (72 Hours)
+export const CURRENT_BUILD_VERSION = '1.0.15';
 
 const LICENSE_STORAGE_KEYS = {
   INSTALL_TIME: '@aegis_first_install_time',
   LIFETIME_PURCHASED: '@aegis_lifetime_purchased',
+  BUILD_VERSION: '@aegis_build_version_installed',
 };
 
 export interface LicenseState {
@@ -48,19 +50,23 @@ function notifyListeners() {
  */
 export async function getLicenseState(): Promise<LicenseState> {
   try {
-    const [installTimeStr, lifetimePurchasedStr] = await Promise.all([
+    const [installTimeStr, lifetimePurchasedStr, installedBuild] = await Promise.all([
       AsyncStorage.getItem(LICENSE_STORAGE_KEYS.INSTALL_TIME),
       AsyncStorage.getItem(LICENSE_STORAGE_KEYS.LIFETIME_PURCHASED),
+      AsyncStorage.getItem(LICENSE_STORAGE_KEYS.BUILD_VERSION),
     ]);
 
     const isLifetimePurchased = lifetimePurchasedStr === 'true';
     const now = Date.now();
     let installTime: number;
 
-    if (!installTimeStr) {
-      // First launch: set install timestamp to right now
+    // Fresh 3-day trial on first install OR when updating to this build (if not already lifetime)
+    if (!installTimeStr || (!isLifetimePurchased && installedBuild !== CURRENT_BUILD_VERSION)) {
       installTime = now;
-      await AsyncStorage.setItem(LICENSE_STORAGE_KEYS.INSTALL_TIME, String(installTime));
+      await Promise.all([
+        AsyncStorage.setItem(LICENSE_STORAGE_KEYS.INSTALL_TIME, String(installTime)),
+        AsyncStorage.setItem(LICENSE_STORAGE_KEYS.BUILD_VERSION, CURRENT_BUILD_VERSION),
+      ]);
     } else {
       installTime = parseInt(installTimeStr, 10);
       if (isNaN(installTime)) {

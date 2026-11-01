@@ -14,6 +14,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.fajostech.aegisguard",
+      "buildNumber": "15",
       "entitlements": {
         "com.apple.developer.networking.networkextension": [
           "packet-tunnel-provider",

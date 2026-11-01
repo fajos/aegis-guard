@@ -19,7 +19,6 @@ import {
   AppManagementInfo,
   POPULAR_GAMES_CATALOG,
   GAMING_REWARDED_AD_DOMAINS,
-  GOOGLE_ADMOB_DOMAINS,
   PopularGameCatalogItem,
 } from '../native/AdGuardVpnModule';
 
@@ -483,31 +482,24 @@ export const AppManagementScreen: React.FC = () => {
             <View style={styles.quickPresetRow}>
               <TouchableOpacity
                 style={styles.presetChip}
-                onPress={() => setNewCustomDomains(GAMING_REWARDED_AD_DOMAINS.slice(0, 8).join(', '))}
+                onPress={() => setNewCustomDomains('unityads.unity3d.com, webview.unityads.unity3d.com')}
                 activeOpacity={0.7}
               >
-                <Text style={styles.presetChipText}>🎮 Game Ads</Text>
+                <Text style={styles.presetChipText}>🎮 Unity Ads</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.presetChip}
-                onPress={() => setNewCustomDomains(GOOGLE_ADMOB_DOMAINS.join(', '))}
+                onPress={() => setNewCustomDomains('applvr.com, applovin.com, ironsrc.com, supersonicads.com')}
                 activeOpacity={0.7}
               >
-                <Text style={styles.presetChipText}>📢 Google Ads</Text>
+                <Text style={styles.presetChipText}>⚡ AppLovin & IronSource</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.presetChip}
-                onPress={() =>
-                  setNewCustomDomains(
-                    [
-                      ...GAMING_REWARDED_AD_DOMAINS.slice(0, 6),
-                      ...GOOGLE_ADMOB_DOMAINS.slice(0, 2),
-                    ].join(', ')
-                  )
-                }
+                onPress={() => setNewCustomDomains('vungle.com, liftoff.io, mintegral.com')}
                 activeOpacity={0.7}
               >
-                <Text style={styles.presetChipText}>⚡ All Networks</Text>
+                <Text style={styles.presetChipText}>🎯 Vungle & Liftoff</Text>
               </TouchableOpacity>
             </View>
             <TextInput
