@@ -68,4 +68,4 @@ These Terms shall be governed and construed in accordance with the laws of the j
 
 If you have questions regarding these Terms, please contact:
 - **Email:** fajostech@gmail.com
-- **Website:** https://fajostech.com/contact
+- **Support URL:** https://fajostech.com/contact
