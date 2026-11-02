@@ -1,15 +1,15 @@
 # Privacy Policy for Aegis Guard
 
 **Effective Date:** November 2, 2026  
-**Developer:** Fajostech / Femi Adeyemi  
+**Developer:** Fajostechnologies Ltd / Femi Adeyemi  
 **Application:** Aegis Guard (`com.fajostech.aegisguard`)  
-**Contact:** fajostech@gmail.com
+**Contact:** privacy@fajostech.com
 
 ---
 
 ## 1. Introduction & Our Core Commitment
 
-Welcome to **Aegis Guard** ("we", "our", or "us"). We are committed to protecting your privacy and empowering you with complete control over your network traffic, advertisements, and personal data.
+Welcome to **Aegis Guard** ("we", "our", or "us"), developed by Fajostechnologies Ltd. We are committed to protecting your privacy and empowering you with complete control over your network traffic, advertisements, and personal data.
 
 **Our Core Privacy Policy is simple: Zero Logs, Zero Tracking, Zero Data Collection.**
 
@@ -34,7 +34,7 @@ Aegis Guard operates locally on your device using native operating system securi
 
 ### A. iOS (Apple NetworkExtension Framework)
 - On iOS devices, Aegis Guard configures encrypted **DNS-over-HTTPS (DoH)** via Apple's official `NEDNSSettingsManager` system API.
-- All DNS lookups are encrypted using TLS/HTTPS directly between your device and secure, privacy-preserving upstream Anycast resolvers (such as Aegis Shield DNS or Cloudflare DoH).
+- All DNS lookups are encrypted using TLS/HTTPS directly between your device and secure, privacy-preserving upstream Anycast resolvers.
 - We operate no intermediate cloud proxy. All ad-blocking evaluation occurs via encrypted DNS filtering or locally on your hardware.
 
 ### B. Android (Local Loopback VpnService)
@@ -60,12 +60,18 @@ For the app to function properly, certain data is stored **strictly within your 
 
 ---
 
-## 6. Upstream DNS Resolvers & Third Parties
+## 6. Upstream DNS Resolvers & Third-Party Non-Affiliation Disclaimer
 
-When Aegis Guard is active, encrypted DNS queries are routed to the upstream DNS resolver configured in your app settings:
-- **Aegis Shield DNS (Default):** Dedicated privacy Anycast resolvers providing automated commercial ad-blocking, tracker prevention, and family security. Operates under strict zero-knowledge principles and does not log user IP addresses or DNS histories.
-- **Cloudflare DNS (Basic Mode):** High-speed encrypted DNS resolver (`1.1.1.1`) with a strict public no-logs commitment and independent third-party privacy audits.
-- **Custom Upstream Resolvers:** You may configure any custom DoH, DoT, or DNSCrypt server of your choice.
+Aegis Guard functions as an on-device network security and privacy configuration tool. When active, encrypted DNS-over-HTTPS (DoH) requests are resolved by independent, publicly accessible Anycast DNS networks:
+- **Default Protection (Aegis Shield Profile):** Powered by publicly accessible Anycast privacy resolvers (including AdGuard Public DNS infrastructure) to provide automated ad-blocking, tracker prevention, and family protection. These resolvers operate under strict zero-knowledge principles and do not log user IP addresses or browsing histories.
+- **Basic Mode:** Routes through Cloudflare Public DNS (`1.1.1.1`), an independent high-speed encrypted resolver with public no-logs commitments.
+- **Custom Resolvers:** Users retain full freedom to configure any custom DoH, DoT, or DNSCrypt server of their choice.
+
+### Non-Affiliation & Trademark Notice
+Aegis Guard and Fajostechnologies Ltd are independent entities. Aegis Guard is **not affiliated with, associated with, authorized by, sponsored by, or endorsed by** AdGuard, Cloudflare, Quad9, Google, Apple, or any other third-party DNS or network provider. All trademarks, registered trademarks, service marks, and company names mentioned are the property of their respective owners. Mention of third-party public resolvers is strictly for technical identification and factual description under nominative fair use.
+
+### Upstream Service Availability Disclaimer
+Fajostechnologies Ltd does not operate or control the physical servers of third-party public DNS networks. We are not liable for any downtime, service latency, regional blocking, or changes made by independent upstream operators.
 
 ---
 
@@ -90,6 +96,6 @@ We may update our Privacy Policy periodically to reflect technological or regula
 ## 10. Contact Us
 
 If you have questions, comments, or concerns regarding this Privacy Policy, please contact our team:
-- **Email:** fajostech@gmail.com
-- **Developer:** Fajostech / Femi Adeyemi
-- **Support URL:** https://fajostech.com/contact
+- **Email:** privacy@fajostech.com / support@fajostech.com
+- **Developer:** Fajostechnologies Ltd / Femi Adeyemi
+- **Repository:** https://github.com/fajos/aegis-guard

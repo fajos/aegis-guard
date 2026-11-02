@@ -179,7 +179,17 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
                 </Text>
 
                 {/* Section 6 */}
-                <Text style={styles.sectionHeading}>6. Contact Information</Text>
+                <Text style={styles.sectionHeading}>6. Upstream DNS & Non-Affiliation Notice</Text>
+                <Text style={styles.paragraph}>
+                  Aegis Guard configures on-device encrypted DNS (DoH) via independent, publicly accessible
+                  Anycast resolvers. Fajostechnologies Ltd and Aegis Guard are independent entities and
+                  are <Text style={styles.bold}>not affiliated with, sponsored by, or endorsed by</Text> AdGuard,
+                  Cloudflare, Quad9, Google, or Apple. All product names and trademarks belong to their respective
+                  owners and are referenced strictly for factual identification under nominative fair use.
+                </Text>
+
+                {/* Section 7 */}
+                <Text style={styles.sectionHeading}>7. Contact Information</Text>
                 <Text style={styles.paragraph}>
                   For questions regarding our privacy practices, contact us at:
                   {'\n'}
@@ -223,15 +233,26 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
                 </Text>
 
                 {/* Section 4 */}
-                <Text style={styles.sectionHeading}>4. Disclaimer of Warranties</Text>
+                <Text style={styles.sectionHeading}>4. Third-Party Resolvers & Upstream Availability</Text>
                 <Text style={styles.paragraph}>
-                  Aegis Guard is provided "as is" and "as available". While we maintain advanced
-                  filtering and DNS protection, we do not guarantee that every advertisement or
-                  tracker will be blocked, or that content will never be inadvertently impacted.
+                  Aegis Guard operates as a client-side configuration tool. Fajostechnologies Ltd does
+                  not own, operate, or maintain physical third-party DNS servers. We disclaim all liability
+                  for any upstream service interruptions, latency, or modifications made by independent
+                  resolver operators. Aegis Guard is not affiliated with or endorsed by AdGuard, Cloudflare,
+                  or Quad9.
                 </Text>
 
                 {/* Section 5 */}
-                <Text style={styles.sectionHeading}>5. Contact & Inquiries</Text>
+                <Text style={styles.sectionHeading}>5. Disclaimer of Warranties & Limitation of Liability</Text>
+                <Text style={styles.paragraph}>
+                  Aegis Guard is provided "as is" and "as available". While we maintain advanced
+                  filtering and DNS protection, we do not guarantee that every advertisement or
+                  tracker will be blocked. To the maximum extent permitted by law, Fajostechnologies Ltd
+                  shall not be liable for any indirect, incidental, or consequential damages.
+                </Text>
+
+                {/* Section 6 */}
+                <Text style={styles.sectionHeading}>6. Contact & Inquiries</Text>
                 <Text style={styles.paragraph}>
                   For support inquiries regarding these terms:
                   {'\n'}

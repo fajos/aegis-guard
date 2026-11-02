@@ -30,7 +30,7 @@
       background: linear-gradient(135deg, #030b20 0%, #0c2340 100%);
       color: #ffffff;
       padding: 48px 24px 40px;
-      margin: -0 -16px 36px;
+      margin: 0 -16px 36px;
       text-align: center;
       border-bottom: 3px solid var(--primary);
     }
@@ -83,6 +83,26 @@
       color: #475569;
       font-size: 14px;
       line-height: 1.6;
+      margin: 0;
+    }
+    .disclaimer-box {
+      background: #f8fafc;
+      border: 1.5px solid #cbd5e1;
+      border-left: 4px solid #3b82f6;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin: 18px 0;
+    }
+    .disclaimer-box h4 {
+      color: #1e293b;
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .disclaimer-box p {
+      color: #475569;
+      font-size: 13.5px;
+      line-height: 1.55;
       margin: 0;
     }
     h2 {
@@ -176,17 +196,45 @@
       <li>Attempt to defeat, bypass, or circumvent any licensing controls or security features.</li>
     </ul>
 
-    <h2>5. Disclaimer of Warranties</h2>
+    <h2>5. Third-Party DNS Resolvers & Non-Affiliation Disclaimer</h2>
     <p>
-      Aegis Guard is provided on an "AS IS" and "AS AVAILABLE" basis. While we strive to block known advertising, tracking, and telemetry networks using community-curated blocklists, we do not warrant that all advertisements will be blocked, or that no legitimate network services will ever be affected. Users retain the ability to whitelist or bypass apps and domains at will.
+      Aegis Guard functions as a client-side network management and configuration utility. The App configures on-device encrypted DNS routing (DNS-over-HTTPS / DoH) through independent, publicly accessible Anycast DNS resolvers (including AdGuard Public DNS and Cloudflare DNS) and user-configured custom endpoints.
     </p>
 
-    <h2>6. Limitation of Liability</h2>
+    <div class="disclaimer-box">
+      <h4>Non-Affiliation & Trademark Notice</h4>
+      <p>
+        Fajostechnologies Ltd and Aegis Guard are independent entities. Aegis Guard is <strong>not affiliated with, associated with, authorized by, sponsored by, or endorsed by</strong> AdGuard, Cloudflare, Quad9, Google, Apple, or any other third-party DNS provider. All product names, trademarks, logos, and brands are the property of their respective owners. Mention of these services is made strictly for technical identification under nominative fair use.
+      </p>
+    </div>
+
+    <div class="disclaimer-box">
+      <h4>Third-Party Server Availability Disclaimer</h4>
+      <p>
+        Fajostechnologies Ltd does not own, operate, or maintain the physical servers or networks of third-party public DNS providers. We disclaim all liability for any interruption, downtime, latency, regional ISP throttling, or policy modifications made by independent upstream operators.
+      </p>
+    </div>
+
+    <h2>6. Disclaimer of Warranties</h2>
     <p>
-      To the maximum extent permitted by applicable law, in no event shall Fajostechnologies Ltd or its developers be liable for any indirect, incidental, special, consequential, or punitive damages arising from the use or inability to use the App.
+      The App is provided on an "AS IS" and "AS AVAILABLE" basis without warranties of any kind, either express or implied, including, but not limited to, implied warranties of merchantability, fitness for a particular purpose, or non-infringement.
+    </p>
+    <ul>
+      <li>While Aegis Guard employs advanced filtering rules and encrypted DNS, we do not guarantee that 100% of advertisements, trackers, or malware will be blocked, or that legitimate network services will never be inadvertently impacted.</li>
+      <li>Users retain complete control to whitelist, bypass, or customize filter rules and upstream resolvers at any time.</li>
+    </ul>
+
+    <h2>7. Limitation of Liability</h2>
+    <p>
+      To the maximum extent permitted by applicable law, in no event shall Fajostechnologies Ltd, its officers, directors, employees, or partners be liable for any indirect, incidental, special, consequential, or punitive damages resulting from your access to or use of (or inability to use) the App or any third-party upstream DNS service.
     </p>
 
-    <h2>7. Contact Us</h2>
+    <h2>8. Governing Law & Dispute Resolution</h2>
+    <p>
+      These Terms shall be governed by and construed in accordance with the laws of the jurisdiction in which Fajostechnologies Ltd operates, without regard to conflict of law principles.
+    </p>
+
+    <h2>9. Contact Us</h2>
     <p>For questions or support regarding these Terms:</p>
     <ul>
       <li><strong>Email:</strong> <a href="mailto:support@fajostech.com">support@fajostech.com</a></li>

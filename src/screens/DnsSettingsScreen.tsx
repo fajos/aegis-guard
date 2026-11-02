@@ -300,6 +300,13 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
         <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
           <Text style={styles.saveButtonText}>Save & Apply DNS Settings</Text>
         </TouchableOpacity>
+
+        {/* Legal & Non-Affiliation Notice */}
+        <View style={styles.legalDisclaimerCard}>
+          <Text style={styles.legalDisclaimerText}>
+            🛡️ Notice: Aegis Guard configures encrypted DNS directly via independent, publicly accessible Anycast resolvers. All trademarks, service marks, and brand names are property of their respective owners and used strictly for factual technical identification under nominative fair use. Aegis Guard and Fajostechnologies Ltd are independent and not affiliated with or endorsed by AdGuard, Cloudflare, Google, or Quad9.
+          </Text>
+        </View>
       </ScrollView>
     </Container>
   );
@@ -532,5 +539,20 @@ const styles = StyleSheet.create({
   },
   fastestPingText: {
     color: '#065F46',
+  },
+  legalDisclaimerCard: {
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 18,
+    marginBottom: 8,
+  },
+  legalDisclaimerText: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: '#6B7280',
+    textAlign: 'center',
   },
 });

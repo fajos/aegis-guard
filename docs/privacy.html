@@ -30,7 +30,7 @@
       background: linear-gradient(135deg, #030b20 0%, #0c2340 100%);
       color: #ffffff;
       padding: 48px 24px 40px;
-      margin: -0 -16px 36px;
+      margin: 0 -16px 36px;
       text-align: center;
       border-bottom: 3px solid var(--primary);
     }
@@ -98,6 +98,26 @@
       font-weight: 700;
       padding: 4px 10px;
       border-radius: 6px;
+    }
+    .disclaimer-box {
+      background: #f8fafc;
+      border: 1.5px solid #cbd5e1;
+      border-left: 4px solid #3b82f6;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin: 18px 0;
+    }
+    .disclaimer-box h4 {
+      color: #1e293b;
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .disclaimer-box p {
+      color: #475569;
+      font-size: 13.5px;
+      line-height: 1.55;
+      margin: 0;
     }
     h2 {
       font-size: 20px;
@@ -192,7 +212,7 @@
     <p>Aegis Guard leverages native operating system security frameworks to protect your connection without proxying data through third-party servers:</p>
     <ul>
       <li>
-        <strong>On iOS (Apple NetworkExtension Framework):</strong> Aegis Guard configures a local DNS-over-HTTPS (DoH) profile via Apple's official <code>NEDNSSettingsManager</code> API. DNS queries are transmitted encrypted directly to selected privacy-preserving upstream resolvers (such as Aegis Shield DNS or Cloudflare DoH). No intermediate server can read or modify your queries.
+        <strong>On iOS (Apple NetworkExtension Framework):</strong> Aegis Guard configures a local DNS-over-HTTPS (DoH) profile via Apple's official <code>NEDNSSettingsManager</code> API. DNS queries are transmitted encrypted directly to selected privacy-preserving upstream resolvers. No intermediate server can read or modify your queries.
       </li>
       <li>
         <strong>On Android (Local Loopback VpnService):</strong> Aegis Guard runs a virtual loopback interface (<code>10.0.0.2</code>) inside your phone. Packet parsing, sinkholing, and ad-blocking evaluation happen entirely on your device processor.
@@ -212,13 +232,29 @@
       Aegis Guard offers an optional <strong>Lifetime Pro</strong> license as a one-time in-app purchase. All financial transactions and payment processing are handled exclusively by <strong>Apple App Store (StoreKit)</strong> or <strong>Google Play Billing</strong>. We never collect, process, or store your credit card details, bank information, or billing address.
     </p>
 
-    <h2>6. Upstream DNS Resolvers</h2>
-    <p>When Aegis Guard is active, encrypted DNS lookups are sent to the upstream resolver you choose in Settings:</p>
+    <h2>6. Upstream DNS Resolvers & Third-Party Non-Affiliation Disclaimer</h2>
+    <p>
+      Aegis Guard functions as an on-device network security and privacy configuration tool. When active, encrypted DNS-over-HTTPS (DoH) requests are resolved by independent, publicly accessible Anycast DNS networks:
+    </p>
     <ul>
-      <li><strong>Aegis Shield DNS (Default):</strong> Provides dedicated ad-blocking, tracker prevention, and family protection without recording user IP addresses or search histories.</li>
-      <li><strong>Cloudflare DNS (Basic Mode):</strong> High-speed encrypted resolver (<code>1.1.1.1</code>) audited by independent third-party privacy firms.</li>
-      <li><strong>Custom Resolvers:</strong> Users may configure any custom DoH, DoT, or DNSCrypt endpoint.</li>
+      <li><strong>Default Protection (Aegis Shield Profile):</strong> Powered by publicly accessible Anycast privacy resolvers (including AdGuard Public DNS infrastructure) to provide automated ad-blocking, tracker prevention, and family protection. These resolvers operate under strict zero-knowledge principles and do not log user IP addresses or browsing histories.</li>
+      <li><strong>Basic Mode:</strong> Routes through Cloudflare Public DNS (<code>1.1.1.1</code>), an independent high-speed encrypted resolver with public no-logs commitments.</li>
+      <li><strong>Custom Resolvers:</strong> Users retain full freedom to configure any custom DoH, DoT, or DNSCrypt server of their choice.</li>
     </ul>
+
+    <div class="disclaimer-box">
+      <h4>Non-Affiliation & Trademark Notice</h4>
+      <p>
+        Aegis Guard and Fajostechnologies Ltd are independent entities. Aegis Guard is <strong>not affiliated with, associated with, authorized by, sponsored by, or endorsed by</strong> AdGuard, Cloudflare, Quad9, Google, Apple, or any other third-party DNS or network provider. All trademarks, registered trademarks, service marks, and company names mentioned are the property of their respective owners. Mention of third-party public resolvers is strictly for technical identification and factual description under nominative fair use.
+      </p>
+    </div>
+
+    <div class="disclaimer-box">
+      <h4>Upstream Service Availability Disclaimer</h4>
+      <p>
+        Fajostechnologies Ltd does not operate or control the physical servers of third-party public DNS networks. We are not liable for any downtime, service latency, regional blocking, or changes made by independent upstream operators.
+      </p>
+    </div>
 
     <h2>7. Children's Privacy (COPPA & GDPR-K Compliance)</h2>
     <p>
