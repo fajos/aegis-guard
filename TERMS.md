@@ -1,9 +1,9 @@
 # Terms of Service for Aegis Guard
 
 **Effective Date:** November 2, 2026  
-**Developer:** Fajostechnologies Ltd / Femi Adeyemi  
+**Developer:** Fajostech / Femi Adeyemi  
 **Application:** Aegis Guard (`com.fajostech.aegisguard`)  
-**Contact:** support@fajostech.com
+**Contact:** fajostech@gmail.com
 
 ---
 
@@ -67,5 +67,5 @@ These Terms shall be governed and construed in accordance with the laws of the j
 ## 9. Contact Us
 
 If you have questions regarding these Terms, please contact:
-- **Email:** support@fajostech.com
-- **Website:** https://github.com/fajos/aegis-guard
+- **Email:** fajostech@gmail.com
+- **Website:** https://fajostech.com/contact
