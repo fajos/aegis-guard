@@ -1,9 +1,9 @@
 # Privacy Policy for Aegis Guard
 
 **Effective Date:** November 2, 2026  
-**Developer:** Fajostechnologies Ltd / Femi Adeyemi  
+**Developer:** Fajostech / Femi Adeyemi  
 **Application:** Aegis Guard (`com.fajostech.aegisguard`)  
-**Contact:** privacy@fajostech.com
+**Contact:** fajostech@gmail.com
 
 ---
 
@@ -90,6 +90,6 @@ We may update our Privacy Policy periodically to reflect technological or regula
 ## 10. Contact Us
 
 If you have questions, comments, or concerns regarding this Privacy Policy, please contact our team:
-- **Email:** privacy@fajostech.com / support@fajostech.com
-- **Developer:** Fajostechnologies Ltd / Femi Adeyemi
+- **Email:** fajostech@gmail.com
+- **Developer:** Fajostech / Femi Adeyemi
 - **Repository:** https://github.com/fajos/aegis-guard
