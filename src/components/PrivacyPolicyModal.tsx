@@ -34,8 +34,8 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
   const handleOpenExternal = async () => {
     const url =
       activeTab === 'privacy'
-        ? 'https://fajos.github.io/aegis-guard/privacy.html'
-        : 'https://fajos.github.io/aegis-guard/terms.html';
+        ? 'https://github.com/fajos/aegis-guard/blob/main/PRIVACY.md'
+        : 'https://github.com/fajos/aegis-guard/blob/main/TERMS.md';
     try {
       const supported = await Linking.canOpenURL(url);
       if (supported) {
