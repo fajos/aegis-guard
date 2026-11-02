@@ -1,9 +1,10 @@
-# Privacy Policy for Aegis Guard
+# Privacy Policy for AegisGuard: Ad & DNS Blocker
 
 **Effective Date:** November 2, 2026  
 **Developer:** Fajostech / Femi Adeyemi  
 **Application:** AegisGuard: Ad & DNS Blocker (`com.fajostech.aegisguard`)  
-**Contact:** fajostech@gmail.com
+**Contact:** fajostech@gmail.com  
+**Support URL:** https://fajostech.com/contact
 
 ---
 
@@ -19,7 +20,7 @@ AegisGuard: Ad & DNS Blocker is designed from the ground up as an on-device util
 
 ## 2. Information We DO NOT Collect
 
-Unlike traditional VPN providers or web proxies, Aegis Guard does **not** collect or store:
+Unlike traditional VPN providers or web proxies, AegisGuard does **not** collect or store:
 - ❌ **No Browsing History:** We never see or store the websites you visit, pages you view, or content you access.
 - ❌ **No DNS Query Logs on Remote Servers:** Your DNS requests are never sent to or recorded on our servers.
 - ❌ **No IP Address Tracking:** We do not record or track your public or private IP addresses.
@@ -28,17 +29,17 @@ Unlike traditional VPN providers or web proxies, Aegis Guard does **not** collec
 
 ---
 
-## 3. How Aegis Guard Works (On-Device Architecture)
+## 3. How AegisGuard Works (On-Device Architecture)
 
 AegisGuard: Ad & DNS Blocker operates locally on your device using native operating system security frameworks:
 
 ### A. iOS (Apple NetworkExtension Framework)
-- On iOS devices, Aegis Guard configures encrypted **DNS-over-HTTPS (DoH)** via Apple's official `NEDNSSettingsManager` system API.
+- On iOS devices, AegisGuard configures encrypted **DNS-over-HTTPS (DoH)** via Apple's official `NEDNSSettingsManager` system API.
 - All DNS lookups are encrypted using TLS/HTTPS directly between your device and secure, privacy-preserving upstream Anycast resolvers.
 - We operate no intermediate cloud proxy. All ad-blocking evaluation occurs via encrypted DNS filtering or locally on your hardware.
 
 ### B. Android (Local Loopback VpnService)
-- On Android devices, Aegis Guard uses the Android `VpnService` API to establish a local, on-device loopback interface (`10.0.0.2`).
+- On Android devices, AegisGuard uses the Android `VpnService` API to establish a local, on-device loopback interface (`10.0.0.2`).
 - Network packets are processed and filtered locally on your device's processor. No packets are forwarded through third-party remote VPN servers.
 
 ---
@@ -62,7 +63,7 @@ For the app to function properly, certain data is stored **strictly within your 
 
 ## 6. Upstream DNS Resolvers & Third-Party Non-Affiliation Disclaimer
 
-Aegis Guard functions as an on-device network security and privacy configuration tool. When active, encrypted DNS-over-HTTPS (DoH) requests are resolved by independent, publicly accessible Anycast DNS networks:
+AegisGuard functions as an on-device network security and privacy configuration tool. When active, encrypted DNS-over-HTTPS (DoH) requests are resolved by independent, publicly accessible Anycast DNS networks:
 - **Default Protection (Aegis Shield Profile):** Powered by publicly accessible Anycast privacy resolvers (including AdGuard Public DNS infrastructure) to provide automated ad-blocking, tracker prevention, and family protection. These resolvers operate under strict zero-knowledge principles and do not log user IP addresses or browsing histories.
 - **Basic Mode:** Routes through Cloudflare Public DNS (`1.1.1.1`), an independent high-speed encrypted resolver with public no-logs commitments.
 - **Custom Resolvers:** Users retain full freedom to configure any custom DoH, DoT, or DNSCrypt server of their choice.
@@ -77,13 +78,13 @@ Fajostech does not operate or control the physical servers of third-party public
 
 ## 7. Children's Privacy (COPPA & GDPR-K Compliance)
 
-AegisGuard: Ad & DNS Blocker does not knowingly collect or solicit personal information from children under the age of 13. Furthermore, Aegis Guard includes an optional **Family Shield Mode** designed specifically to help parents protect children by blocking adult content, explicit websites, and enforcing safe search across search engines.
+AegisGuard: Ad & DNS Blocker does not knowingly collect or solicit personal information from children under the age of 13. Furthermore, AegisGuard includes an optional **Family Shield Mode** designed specifically to help parents protect children by blocking adult content, explicit websites, and enforcing safe search across search engines.
 
 ---
 
 ## 8. Security of Your Data
 
-Because Aegis Guard stores user settings and local logs exclusively inside the operating system's isolated sandbox, your data is protected by the device's hardware encryption, biometrics (Face ID / Touch ID / Fingerprint), and OS access controls.
+Because AegisGuard stores user settings and local logs exclusively inside the operating system's isolated sandbox, your data is protected by the device's hardware encryption, biometrics (Face ID / Touch ID / Fingerprint), and OS access controls.
 
 ---
 
@@ -96,6 +97,7 @@ We may update our Privacy Policy periodically to reflect technological or regula
 ## 10. Contact Us
 
 If you have questions, comments, or concerns regarding this Privacy Policy, please contact our team:
-- **Email:** fajostech@gmail.com / https://fajostech.com/contact
+- **Email:** fajostech@gmail.com
+- **Support URL:** https://fajostech.com/contact
 - **Developer:** Fajostech / Femi Adeyemi
 - **Repository:** https://github.com/fajos/aegis-guard

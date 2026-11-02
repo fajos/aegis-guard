@@ -304,7 +304,7 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
         {/* Legal & Non-Affiliation Notice */}
         <View style={styles.legalDisclaimerCard}>
           <Text style={styles.legalDisclaimerText}>
-            🛡️ Notice: Aegis Guard configures encrypted DNS directly via independent, publicly accessible Anycast resolvers. All trademarks, service marks, and brand names are property of their respective owners and used strictly for factual technical identification under nominative fair use. Aegis Guard and Fajostechnologies Ltd are independent and not affiliated with or endorsed by AdGuard, Cloudflare, Google, or Quad9.
+            🛡️ Notice: AegisGuard configures encrypted DNS directly via independent, publicly accessible Anycast resolvers. All trademarks, service marks, and brand names are property of their respective owners and used strictly for factual technical identification under nominative fair use. AegisGuard and Fajostech are independent and not affiliated with or endorsed by AdGuard, Cloudflare, Google, or Quad9.
           </Text>
         </View>
       </ScrollView>

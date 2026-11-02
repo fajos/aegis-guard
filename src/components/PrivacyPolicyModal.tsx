@@ -61,7 +61,7 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
                   {activeTab === 'privacy' ? 'Privacy Policy' : 'Terms of Service'}
                 </Text>
                 <Text style={styles.headerSubtitle}>
-                  Aegis Guard • Fajostechnologies Ltd
+                  AegisGuard • Fajostech
                 </Text>
               </View>
               <TouchableOpacity
@@ -181,8 +181,8 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
                 {/* Section 6 */}
                 <Text style={styles.sectionHeading}>6. Upstream DNS & Non-Affiliation Notice</Text>
                 <Text style={styles.paragraph}>
-                  Aegis Guard configures on-device encrypted DNS (DoH) via independent, publicly accessible
-                  Anycast resolvers. Fajostechnologies Ltd and Aegis Guard are independent entities and
+                  AegisGuard configures on-device encrypted DNS (DoH) via independent, publicly accessible
+                  Anycast resolvers. Fajostech and AegisGuard: Ad & DNS Blocker are independent entities and
                   are <Text style={styles.bold}>not affiliated with, sponsored by, or endorsed by</Text> AdGuard,
                   Cloudflare, Quad9, Google, or Apple. All product names and trademarks belong to their respective
                   owners and are referenced strictly for factual identification under nominative fair use.
@@ -193,8 +193,9 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
                 <Text style={styles.paragraph}>
                   For questions regarding our privacy practices, contact us at:
                   {'\n'}
-                  <Text style={styles.bold}>privacy@fajostech.com</Text> or{' '}
-                  <Text style={styles.bold}>support@fajostech.com</Text>
+                  <Text style={styles.bold}>fajostech@gmail.com</Text>
+                  {'\n'}
+                  Support: <Text style={styles.bold}>https://fajostech.com/contact</Text>
                 </Text>
               </View>
             ) : (
@@ -203,7 +204,7 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
                 <View style={styles.zeroLogsCard}>
                   <Text style={styles.zeroLogsTitle}>📜 License Agreement & Terms</Text>
                   <Text style={styles.zeroLogsDesc}>
-                    By using Aegis Guard, you agree to these terms. Aegis Guard grants you a personal,
+                    By using AegisGuard: Ad & DNS Blocker, you agree to these terms. AegisGuard grants you a personal,
                     non-exclusive, non-transferable license to use this app on your devices.
                   </Text>
                 </View>
@@ -211,14 +212,14 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
                 {/* Section 1 */}
                 <Text style={styles.sectionHeading}>1. Acceptance of Terms</Text>
                 <Text style={styles.paragraph}>
-                  By installing and opening Aegis Guard, you agree to comply with and be bound by
+                  By installing and opening AegisGuard, you agree to comply with and be bound by
                   these Terms of Service. If you do not agree, please uninstall the app.
                 </Text>
 
                 {/* Section 2 */}
                 <Text style={styles.sectionHeading}>2. 3-Day Trial & Lifetime Pro</Text>
                 <Text style={styles.paragraph}>
-                  Aegis Guard includes a 3-day free trial providing full access to all features,
+                  AegisGuard includes a 3-day free trial providing full access to all features,
                   including in-app ad blocking and split-tunneling. Following trial expiration, the
                   app reverts to Basic Mode (encrypted DNS privacy). Users can unlock permanent full
                   protection with a one-off Lifetime Pro in-app purchase with zero recurring subscriptions.
@@ -227,7 +228,7 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
                 {/* Section 3 */}
                 <Text style={styles.sectionHeading}>3. Acceptable Use</Text>
                 <Text style={styles.paragraph}>
-                  You agree to use Aegis Guard strictly for lawful personal purposes and not to
+                  You agree to use AegisGuard strictly for lawful personal purposes and not to
                   interfere with the operation of third-party network services or attempt to reverse-engineer
                   the application.
                 </Text>
@@ -235,19 +236,19 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
                 {/* Section 4 */}
                 <Text style={styles.sectionHeading}>4. Third-Party Resolvers & Upstream Availability</Text>
                 <Text style={styles.paragraph}>
-                  Aegis Guard operates as a client-side configuration tool. Fajostechnologies Ltd does
+                  AegisGuard operates as a client-side configuration tool. Fajostech does
                   not own, operate, or maintain physical third-party DNS servers. We disclaim all liability
                   for any upstream service interruptions, latency, or modifications made by independent
-                  resolver operators. Aegis Guard is not affiliated with or endorsed by AdGuard, Cloudflare,
+                  resolver operators. AegisGuard is not affiliated with or endorsed by AdGuard, Cloudflare,
                   or Quad9.
                 </Text>
 
                 {/* Section 5 */}
                 <Text style={styles.sectionHeading}>5. Disclaimer of Warranties & Limitation of Liability</Text>
                 <Text style={styles.paragraph}>
-                  Aegis Guard is provided "as is" and "as available". While we maintain advanced
+                  AegisGuard is provided "as is" and "as available". While we maintain advanced
                   filtering and DNS protection, we do not guarantee that every advertisement or
-                  tracker will be blocked. To the maximum extent permitted by law, Fajostechnologies Ltd
+                  tracker will be blocked. To the maximum extent permitted by law, Fajostech
                   shall not be liable for any indirect, incidental, or consequential damages.
                 </Text>
 
@@ -256,7 +257,9 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
                 <Text style={styles.paragraph}>
                   For support inquiries regarding these terms:
                   {'\n'}
-                  <Text style={styles.bold}>support@fajostech.com</Text>
+                  <Text style={styles.bold}>fajostech@gmail.com</Text>
+                  {'\n'}
+                  Support: <Text style={styles.bold}>https://fajostech.com/contact</Text>
                 </Text>
               </View>
             )}
