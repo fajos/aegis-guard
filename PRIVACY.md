@@ -1,19 +1,19 @@
 # Privacy Policy for Aegis Guard
 
 **Effective Date:** November 2, 2026  
-**Developer:** Fajostechnologies Ltd / Femi Adeyemi  
-**Application:** Aegis Guard (`com.fajostech.aegisguard`)  
-**Contact:** privacy@fajostech.com
+**Developer:** Fajostech / Femi Adeyemi  
+**Application:** AegisGuard: Ad & DNS Blocker (`com.fajostech.aegisguard`)  
+**Contact:** fajostech@gmail.com
 
 ---
 
 ## 1. Introduction & Our Core Commitment
 
-Welcome to **Aegis Guard** ("we", "our", or "us"), developed by Fajostechnologies Ltd. We are committed to protecting your privacy and empowering you with complete control over your network traffic, advertisements, and personal data.
+Welcome to **AegisGuard: Ad & DNS Blocker** ("we", "our", or "us"), developed by Fajostech. We are committed to protecting your privacy and empowering you with complete control over your network traffic, advertisements, and personal data.
 
 **Our Core Privacy Policy is simple: Zero Logs, Zero Tracking, Zero Data Collection.**
 
-Aegis Guard is designed from the ground up as an on-device utility. We do not operate tracking servers, we do not log your online activities, and we do not monetize or sell your personal data.
+AegisGuard: Ad & DNS Blocker is designed from the ground up as an on-device utility. We do not operate tracking servers, we do not log your online activities, and we do not monetize or sell your personal data.
 
 ---
 
@@ -30,7 +30,7 @@ Unlike traditional VPN providers or web proxies, Aegis Guard does **not** collec
 
 ## 3. How Aegis Guard Works (On-Device Architecture)
 
-Aegis Guard operates locally on your device using native operating system security frameworks:
+AegisGuard: Ad & DNS Blocker operates locally on your device using native operating system security frameworks:
 
 ### A. iOS (Apple NetworkExtension Framework)
 - On iOS devices, Aegis Guard configures encrypted **DNS-over-HTTPS (DoH)** via Apple's official `NEDNSSettingsManager` system API.
@@ -54,7 +54,7 @@ For the app to function properly, certain data is stored **strictly within your 
 
 ## 5. In-App Purchases & Financial Information
 
-- Aegis Guard offers an optional **Lifetime Pro** license as a one-time in-app purchase.
+- AegisGuard: Ad & DNS Blocker offers an optional **Lifetime Pro** license as a one-time in-app purchase.
 - All purchase processing and financial transactions are handled exclusively by **Apple App Store (StoreKit)** on iOS or **Google Play Billing** on Android.
 - We do not collect, process, or have access to your credit card number, banking details, or billing address.
 
@@ -68,16 +68,16 @@ Aegis Guard functions as an on-device network security and privacy configuration
 - **Custom Resolvers:** Users retain full freedom to configure any custom DoH, DoT, or DNSCrypt server of their choice.
 
 ### Non-Affiliation & Trademark Notice
-Aegis Guard and Fajostechnologies Ltd are independent entities. Aegis Guard is **not affiliated with, associated with, authorized by, sponsored by, or endorsed by** AdGuard, Cloudflare, Quad9, Google, Apple, or any other third-party DNS or network provider. All trademarks, registered trademarks, service marks, and company names mentioned are the property of their respective owners. Mention of third-party public resolvers is strictly for technical identification and factual description under nominative fair use.
+AegisGuard: Ad & DNS Blocker and Fajostech are independent entities. AegisGuard: Ad & DNS Blocker is **not affiliated with, associated with, authorized by, sponsored by, or endorsed by** AdGuard, Cloudflare, Quad9, Google, Apple, or any other third-party DNS or network provider. All trademarks, registered trademarks, service marks, and company names mentioned are the property of their respective owners. Mention of third-party public resolvers is strictly for technical identification and factual description under nominative fair use.
 
 ### Upstream Service Availability Disclaimer
-Fajostechnologies Ltd does not operate or control the physical servers of third-party public DNS networks. We are not liable for any downtime, service latency, regional blocking, or changes made by independent upstream operators.
+Fajostech does not operate or control the physical servers of third-party public DNS networks. We are not liable for any downtime, service latency, regional blocking, or changes made by independent upstream operators.
 
 ---
 
 ## 7. Children's Privacy (COPPA & GDPR-K Compliance)
 
-Aegis Guard does not knowingly collect or solicit personal information from children under the age of 13. Furthermore, Aegis Guard includes an optional **Family Shield Mode** designed specifically to help parents protect children by blocking adult content, explicit websites, and enforcing safe search across search engines.
+AegisGuard: Ad & DNS Blocker does not knowingly collect or solicit personal information from children under the age of 13. Furthermore, Aegis Guard includes an optional **Family Shield Mode** designed specifically to help parents protect children by blocking adult content, explicit websites, and enforcing safe search across search engines.
 
 ---
 
@@ -96,6 +96,6 @@ We may update our Privacy Policy periodically to reflect technological or regula
 ## 10. Contact Us
 
 If you have questions, comments, or concerns regarding this Privacy Policy, please contact our team:
-- **Email:** privacy@fajostech.com / support@fajostech.com
-- **Developer:** Fajostechnologies Ltd / Femi Adeyemi
+- **Email:** fajostech@gmail.com / https://fajostech.com/contact
+- **Developer:** Fajostech / Femi Adeyemi
 - **Repository:** https://github.com/fajos/aegis-guard
