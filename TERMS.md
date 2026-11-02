@@ -15,7 +15,7 @@ By downloading, installing, accessing, or using the **Aegis Guard** mobile appli
 
 ## 2. License Grant
 
-Subject to your compliance with these Terms, Fajostechnologies Ltd grants you a limited, non-exclusive, non-transferable, revocable license to download, install, and use Aegis Guard on iOS and Android devices that you own or control, strictly for personal, non-commercial use.
+Subject to your compliance with these Terms, Fajostech grants you a limited, non-exclusive, non-transferable, revocable license to download, install, and use Aegis Guard on iOS and Android devices that you own or control, strictly for personal, non-commercial use.
 
 ---
 
@@ -54,7 +54,7 @@ The App is provided on an "AS IS" and "AS AVAILABLE" basis without warranties of
 
 ## 7. Limitation of Liability
 
-To the maximum extent permitted by applicable law, in no event shall Fajostechnologies Ltd, its officers, directors, employees, or partners be liable for any indirect, incidental, special, consequential, or punitive damages resulting from your access to or use of (or inability to use) the App.
+To the maximum extent permitted by applicable law, in no event shall Fajostechn, its officers, directors, employees, or partners be liable for any indirect, incidental, special, consequential, or punitive damages resulting from your access to or use of (or inability to use) the App.
 
 ---
 
