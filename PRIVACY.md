@@ -92,4 +92,4 @@ We may update our Privacy Policy periodically to reflect technological or regula
 If you have questions, comments, or concerns regarding this Privacy Policy, please contact our team:
 - **Email:** fajostech@gmail.com
 - **Developer:** Fajostech / Femi Adeyemi
-- **Repository:** https://github.com/fajos/aegis-guard
+- **Support URL:** https://fajostech.com/contact
