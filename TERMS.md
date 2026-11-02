@@ -40,7 +40,7 @@ You agree not to use the App:
 
 ## 5. Third-Party DNS Services & Content Disclaimer
 
-Aegis Guard applies filtering based on open-source community filter lists and encrypted upstream DNS providers (such as AdGuard DNS and Cloudflare DNS). 
+Aegis Guard applies filtering based on open-source community filter lists and encrypted upstream DNS providers (such as Aegis Shield DNS and Cloudflare DNS). 
 - We do not host, create, or control the content delivered by external websites or applications.
 - While Aegis Guard strives for high filtering accuracy, no ad blocker can guarantee 100% blocking of every advertisement or tracker, nor can it guarantee that no legitimate service will ever be inadvertently affected. Users may customize their filter rules and app exclusions at any time.
 

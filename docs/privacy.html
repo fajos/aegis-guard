@@ -192,7 +192,7 @@
     <p>Aegis Guard leverages native operating system security frameworks to protect your connection without proxying data through third-party servers:</p>
     <ul>
       <li>
-        <strong>On iOS (Apple NetworkExtension Framework):</strong> Aegis Guard configures a local DNS-over-HTTPS (DoH) profile via Apple's official <code>NEDNSSettingsManager</code> API. DNS queries are transmitted encrypted directly to selected privacy-preserving upstream resolvers (e.g. AdGuard DNS or Cloudflare DoH). No intermediate server can read or modify your queries.
+        <strong>On iOS (Apple NetworkExtension Framework):</strong> Aegis Guard configures a local DNS-over-HTTPS (DoH) profile via Apple's official <code>NEDNSSettingsManager</code> API. DNS queries are transmitted encrypted directly to selected privacy-preserving upstream resolvers (such as Aegis Shield DNS or Cloudflare DoH). No intermediate server can read or modify your queries.
       </li>
       <li>
         <strong>On Android (Local Loopback VpnService):</strong> Aegis Guard runs a virtual loopback interface (<code>10.0.0.2</code>) inside your phone. Packet parsing, sinkholing, and ad-blocking evaluation happen entirely on your device processor.
@@ -215,7 +215,7 @@
     <h2>6. Upstream DNS Resolvers</h2>
     <p>When Aegis Guard is active, encrypted DNS lookups are sent to the upstream resolver you choose in Settings:</p>
     <ul>
-      <li><strong>AdGuard DNS (Default):</strong> Provides ad-blocking, tracker prevention, and family protection without recording user IP addresses or search histories.</li>
+      <li><strong>Aegis Shield DNS (Default):</strong> Provides dedicated ad-blocking, tracker prevention, and family protection without recording user IP addresses or search histories.</li>
       <li><strong>Cloudflare DNS (Basic Mode):</strong> High-speed encrypted resolver (<code>1.1.1.1</code>) audited by independent third-party privacy firms.</li>
       <li><strong>Custom Resolvers:</strong> Users may configure any custom DoH, DoT, or DNSCrypt endpoint.</li>
     </ul>
