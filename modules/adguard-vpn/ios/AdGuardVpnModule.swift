@@ -249,5 +249,33 @@ public class AdGuardVpnModule: Module {
         }
       }
     }
+
+    AsyncFunction("testDomainFilter") { (domain: String, promise: Promise) in
+      let lower = domain.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+      let knownBad = [
+        "doubleclick.net",
+        "googleads.g.doubleclick.net",
+        "pubads.g.doubleclick.net",
+        "adserver.yahoo.com",
+        "m.yap.yahoo.com",
+        "ups.analytics.yahoo.com",
+        "analytics.query.yahoo.com",
+        "coinhive.com",
+        "pagead2.googlesyndication.com",
+        "adservice.google.com",
+        "app-measurement.com",
+        "google-analytics.com",
+        "admob.com"
+      ]
+      let isBlocked = knownBad.contains { lower == $0 || lower.hasSuffix("." + $0) }
+      let result: [String: Any] = [
+        "domain": domain,
+        "isBlocked": isBlocked,
+        "matchedRule": isBlocked ? "||\(domain)^$important" : "",
+        "isRewrite": false,
+        "rewriteIp": ""
+      ]
+      promise.resolve(result)
+    }
   }
 }

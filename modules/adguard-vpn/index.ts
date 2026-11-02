@@ -1361,7 +1361,41 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
       }
     }
 
-    // 4. Block List vectors
+    // 4. Block List vectors & Known Ad/Tracker Domains
+    const knownBlocklistDomains = [
+      'doubleclick.net',
+      'googleads.g.doubleclick.net',
+      'pubads.g.doubleclick.net',
+      'adserver.yahoo.com',
+      'm.yap.yahoo.com',
+      'ups.analytics.yahoo.com',
+      'analytics.query.yahoo.com',
+      'coinhive.com',
+      'pagead2.googlesyndication.com',
+      'adservice.google.com',
+      'app-measurement.com',
+      'google-analytics.com',
+      'admob.com',
+      'vungle.com',
+      'applovin.com',
+      'unityads.unity3d.com',
+      'ironsrc.com',
+      'taboola.com',
+      'outbrain.com',
+      'criteo.com',
+      'adnxs.com',
+    ];
+
+    if (knownBlocklistDomains.some((kd) => d === kd || d.endsWith('.' + kd))) {
+      return {
+        domain,
+        isBlocked: true,
+        matchedRule: `||${domain}^$important`,
+        isRewrite: false,
+        rewriteIp: '',
+      };
+    }
+
     const blockKeywords = [
       'doubleclick',
       'google-analytics',
@@ -1376,6 +1410,22 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
       'facebook.com/tr',
       'criteo',
       'adnxs',
+      'adserver',
+      'analytics',
+      'coinhive',
+      'admob',
+      'applovin',
+      'vungle',
+      'unityads',
+      'ironsrc',
+      'cryptominer',
+      'smartadserver',
+      'popcash',
+      'popads',
+      'propellerads',
+      'adroll',
+      'mixpanel',
+      'amplitude',
     ];
 
     const isMatch = blockKeywords.some((kw) => d.includes(kw));

@@ -199,7 +199,9 @@ class DnsFilterEngine(
             "||gemini.yahoo.com^",
             "||adserver.yahoo.com^",
             "||yads.c.oath.com^",
-            "||analytics.query.yahoo.com^"
+            "||analytics.query.yahoo.com^",
+            "||ups.analytics.yahoo.com^",
+            "||coinhive.com^"
         )
         defaultRules.forEach { line ->
             AdBlockRule.parse(line)?.let { matcher.addRule(it) }
