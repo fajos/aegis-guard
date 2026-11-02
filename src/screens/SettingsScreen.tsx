@@ -6,7 +6,6 @@ import { FamilySecuritySection } from '../components/FamilySecuritySection';
 import { useLicense } from '../hooks/useLicense';
 import { LifetimePaywallModal } from '../components/LifetimePaywallModal';
 import { PrivacyPolicyModal, LegalTab } from '../components/PrivacyPolicyModal';
-import { resetTrialForTesting } from '../utils/license';
 
 export type SettingsSubTab = 'dns' | 'rules' | 'security';
 
@@ -81,40 +80,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ initialSubTab = 
             </Text>
           </View>
         </TouchableOpacity>
-
-        {/* QA License Diagnostics & Mode Switcher */}
-        <View style={styles.qaRow}>
-          <TouchableOpacity
-            style={styles.qaPill}
-            onPress={async () => {
-              await resetTrialForTesting(0);
-              Alert.alert('🎉 Trial Active', '3-Day Free Trial reset! Full in-app ad blocking is active.');
-            }}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.qaPillText}>🔄 Reset 3d Trial</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.qaPill}
-            onPress={async () => {
-              await purchaseLifetime();
-              Alert.alert('👑 Lifetime Pro', 'Lifetime Pro activated forever!');
-            }}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.qaPillText}>👑 Lifetime Pro</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.qaPill}
-            onPress={async () => {
-              await resetTrialForTesting(4);
-              Alert.alert('🔒 Basic Mode', 'Simulating expired trial: Basic encrypted DNS active, in-app ad blocking paused.');
-            }}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.qaPillText}>🔒 Basic Mode</Text>
-          </TouchableOpacity>
-        </View>
 
         <View style={styles.segmentedContainer}>
           <TouchableOpacity
@@ -312,27 +277,6 @@ const styles = StyleSheet.create({
   },
   licenseActionTextExpired: {
     color: '#FFFFFF',
-  },
-  qaRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-    gap: 6,
-  },
-  qaPill: {
-    flex: 1,
-    backgroundColor: '#F3F4F6',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    paddingVertical: 6,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  qaPillText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#4B5563',
   },
   segmentedContainer: {
     flexDirection: 'row',

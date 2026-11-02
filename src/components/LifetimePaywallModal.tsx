@@ -10,7 +10,6 @@ import {
   Alert,
 } from 'react-native';
 import { useLicense } from '../hooks/useLicense';
-import { resetTrialForTesting } from '../utils/license';
 import { PrivacyPolicyModal, LegalTab } from './PrivacyPolicyModal';
 
 interface LifetimePaywallModalProps {
@@ -231,22 +230,6 @@ export const LifetimePaywallModal: React.FC<LifetimePaywallModalProps> = ({
               </TouchableOpacity>
             </View>
 
-            {/* QA / Dev Reset Trial Option */}
-            <TouchableOpacity
-              onPress={async () => {
-                await resetTrialForTesting(0);
-                Alert.alert(
-                  '🎉 3-Day Trial Active',
-                  'Trial reset to 3 full days. Full in-app ad blocking is now 100% active!',
-                  [{ text: 'Great', onPress: onClose }]
-                );
-              }}
-              style={styles.resetTrialButton}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.resetTrialButtonText}>🔄 Reset 3-Day Free Trial (Test Full Ad-Blocking)</Text>
-            </TouchableOpacity>
-
             <Text style={styles.legalDisclaimer}>
               Basic Mode provides encrypted DNS privacy against ISP tracking, but disables in-app ad blocking after trial.
             </Text>
@@ -462,19 +445,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 10,
     lineHeight: 14,
-  },
-  resetTrialButton: {
-    marginTop: 10,
-    paddingVertical: 7,
-    paddingHorizontal: 12,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    alignSelf: 'center',
-  },
-  resetTrialButtonText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#4B5563',
   },
   legalLinksRow: {
     flexDirection: 'row',
