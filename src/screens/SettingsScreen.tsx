@@ -5,6 +5,7 @@ import { UserRulesScreen } from './UserRulesScreen';
 import { FamilySecuritySection } from '../components/FamilySecuritySection';
 import { useLicense } from '../hooks/useLicense';
 import { LifetimePaywallModal } from '../components/LifetimePaywallModal';
+import { PrivacyPolicyModal, LegalTab } from '../components/PrivacyPolicyModal';
 import { resetTrialForTesting } from '../utils/license';
 
 export type SettingsSubTab = 'dns' | 'rules' | 'security';
@@ -17,6 +18,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ initialSubTab = 
   const [activeSubTab, setActiveSubTab] = useState<SettingsSubTab>(initialSubTab);
   const { isLifetimePurchased, isTrialActive, trialExpired, daysRemaining, hoursRemaining, purchaseLifetime } = useLicense();
   const [paywallVisible, setPaywallVisible] = useState(false);
+  const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
+  const [legalTab, setLegalTab] = useState<LegalTab>('privacy');
 
   return (
     <View style={styles.container}>
@@ -166,10 +169,42 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ initialSubTab = 
         )}
       </View>
 
+      {/* Bottom Legal & Privacy Strip */}
+      <View style={styles.legalFooter}>
+        <TouchableOpacity
+          style={styles.legalButton}
+          onPress={() => {
+            setLegalTab('privacy');
+            setPrivacyModalVisible(true);
+          }}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.legalButtonText}>🔒 Privacy Policy</Text>
+        </TouchableOpacity>
+        <Text style={styles.legalDot}>•</Text>
+        <TouchableOpacity
+          style={styles.legalButton}
+          onPress={() => {
+            setLegalTab('terms');
+            setPrivacyModalVisible(true);
+          }}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.legalButtonText}>📜 Terms of Service</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Lifetime Pro Paywall Modal */}
       <LifetimePaywallModal
         visible={paywallVisible}
         onClose={() => setPaywallVisible(false)}
+      />
+
+      {/* In-App Privacy Policy & Terms Modal */}
+      <PrivacyPolicyModal
+        visible={privacyModalVisible}
+        onClose={() => setPrivacyModalVisible(false)}
+        initialTab={legalTab}
       />
     </View>
   );
@@ -331,5 +366,27 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  legalFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  legalButton: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  legalButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  legalDot: {
+    fontSize: 12,
+    color: '#D1D5DB',
   },
 });

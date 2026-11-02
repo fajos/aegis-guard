@@ -14,6 +14,7 @@ import { useLicense } from '../hooks/useLicense';
 import { AdGuardVpn } from '../native/AdGuardVpnModule';
 import { ShieldAuditModal } from '../components/ShieldAuditModal';
 import { LifetimePaywallModal } from '../components/LifetimePaywallModal';
+import { PrivacyPolicyModal } from '../components/PrivacyPolicyModal';
 import { authenticateWithBiometrics } from '../utils/security';
 
 interface DashboardScreenProps {
@@ -28,6 +29,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
   const [auditModalVisible, setAuditModalVisible] = useState(false);
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [paywallReason, setPaywallReason] = useState<string | undefined>(undefined);
+  const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
 
   const formatSnoozeTime = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -341,11 +343,18 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
         </View>
 
         {/* Privacy Note Card */}
-        <View style={styles.tipCard}>
+        <TouchableOpacity
+          style={styles.tipCard}
+          onPress={() => setPrivacyModalVisible(true)}
+          activeOpacity={0.8}
+        >
           <Text style={styles.tipText}>
             💡 <Text style={styles.tipBold}>Privacy Note:</Text> All DNS filtering happens entirely on your device inside the local VPN sandbox. Your personal web browsing is never transmitted to an external logging server.
           </Text>
-        </View>
+          <Text style={styles.dashboardPrivacyLinkText}>
+            🔒 Read Zero-Logs Privacy Policy →
+          </Text>
+        </TouchableOpacity>
       </ScrollView>
 
       {/* Security & Leak Audit Diagnostic Modal */}
@@ -359,6 +368,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
         visible={paywallVisible}
         onClose={() => setPaywallVisible(false)}
         reason={paywallReason}
+      />
+
+      {/* Privacy Policy & Terms Modal */}
+      <PrivacyPolicyModal
+        visible={privacyModalVisible}
+        onClose={() => setPrivacyModalVisible(false)}
+        initialTab="privacy"
       />
     </SafeAreaView>
   );
@@ -806,5 +822,11 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '800',
+  },
+  dashboardPrivacyLinkText: {
+    marginTop: 8,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#10B981',
   },
 });

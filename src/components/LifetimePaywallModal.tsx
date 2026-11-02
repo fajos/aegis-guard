@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useLicense } from '../hooks/useLicense';
 import { resetTrialForTesting } from '../utils/license';
+import { PrivacyPolicyModal, LegalTab } from './PrivacyPolicyModal';
 
 interface LifetimePaywallModalProps {
   visible: boolean;
@@ -25,6 +26,8 @@ export const LifetimePaywallModal: React.FC<LifetimePaywallModalProps> = ({
 }) => {
   const { purchaseLifetime, restorePurchases } = useLicense();
   const [isProcessing, setIsProcessing] = useState(false);
+  const [legalModalVisible, setLegalModalVisible] = useState(false);
+  const [legalModalTab, setLegalModalTab] = useState<LegalTab>('privacy');
 
   const handlePurchase = async () => {
     setIsProcessing(true);
@@ -205,6 +208,29 @@ export const LifetimePaywallModal: React.FC<LifetimePaywallModalProps> = ({
               </TouchableOpacity>
             </View>
 
+            {/* Apple StoreKit Guideline 3.1.2: Privacy Policy & Terms of Service */}
+            <View style={styles.legalLinksRow}>
+              <TouchableOpacity
+                onPress={() => {
+                  setLegalModalTab('privacy');
+                  setLegalModalVisible(true);
+                }}
+                style={styles.legalLinkButton}
+              >
+                <Text style={styles.legalLinkText}>Privacy Policy</Text>
+              </TouchableOpacity>
+              <Text style={styles.legalDivider}>•</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setLegalModalTab('terms');
+                  setLegalModalVisible(true);
+                }}
+                style={styles.legalLinkButton}
+              >
+                <Text style={styles.legalLinkText}>Terms of Service</Text>
+              </TouchableOpacity>
+            </View>
+
             {/* QA / Dev Reset Trial Option */}
             <TouchableOpacity
               onPress={async () => {
@@ -227,6 +253,13 @@ export const LifetimePaywallModal: React.FC<LifetimePaywallModalProps> = ({
           </ScrollView>
         </View>
       </View>
+
+      {/* In-App Privacy Policy & Terms of Service Modal */}
+      <PrivacyPolicyModal
+        visible={legalModalVisible}
+        onClose={() => setLegalModalVisible(false)}
+        initialTab={legalModalTab}
+      />
     </Modal>
   );
 };
@@ -442,5 +475,26 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: '#4B5563',
+  },
+  legalLinksRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+  },
+  legalLinkButton: {
+    paddingVertical: 3,
+    paddingHorizontal: 6,
+  },
+  legalLinkText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#2563EB',
+    textDecorationLine: 'underline',
+  },
+  legalDivider: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginHorizontal: 4,
   },
 });
