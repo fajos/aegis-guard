@@ -27,20 +27,18 @@ public class AdGuardVpnModule: Module {
 
   /// Resolves the active DoH URL and bootstrap IPv4/IPv6 addresses based on user selection & entitlements
   private func getDnsConfiguration() -> (servers: [String], dohURL: String, description: String) {
-    let isFamily = UserDefaults.standard.bool(forKey: "aegis_family_protection")
-    let isPremium = UserDefaults.standard.object(forKey: "aegis_is_premium") as? Bool ?? true
     let customServers = UserDefaults.standard.stringArray(forKey: "aegis_selected_dns_servers") ?? []
+    let isFamily = UserDefaults.standard.bool(forKey: "aegis_family_protection")
 
-    if isFamily {
-      return (
-        ["94.140.14.15", "94.140.15.16", "2a10:50c0::bad1:ff", "2a10:50c0::bad2:ff"],
-        "https://dns-family.adguard-dns.com/dns-query",
-        "Aegis Guard Family Shield"
-      )
-    }
-
+    // 1. Explicitly configured server list takes precedence
     if let primary = customServers.first {
-      if primary == "1.1.1.1" || primary == "1.0.0.1" {
+      if primary == "94.140.14.15" || primary == "94.140.15.16" {
+        return (
+          ["94.140.14.15", "94.140.15.16", "2a10:50c0::bad1:ff", "2a10:50c0::bad2:ff"],
+          "https://dns-family.adguard-dns.com/dns-query",
+          "Aegis Guard Family Shield"
+        )
+      } else if primary == "1.1.1.1" || primary == "1.0.0.1" {
         return (
           ["1.1.1.1", "1.0.0.1", "2606:4700:4700::1111", "2606:4700:4700::1001"],
           "https://cloudflare-dns.com/dns-query",
@@ -64,25 +62,32 @@ public class AdGuardVpnModule: Module {
           "https://dns.quad9.net/dns-query",
           "Aegis Guard - Quad9 DNS"
         )
-      } else if primary != "94.140.14.14" && primary != "94.140.15.15" {
+      } else if primary == "94.140.14.14" || primary == "94.140.15.15" {
+        return (
+          ["94.140.14.14", "94.140.15.15", "2a10:50c0::ad1:ff", "2a10:50c0::ad2:ff"],
+          "https://dns.adguard-dns.com/dns-query",
+          "Aegis Guard DNS (Default)"
+        )
+      } else {
         let doh = primary.starts(with: "https://") ? primary : "https://\(primary)/dns-query"
         return (customServers, doh, "Aegis Guard Custom DNS")
       }
     }
 
-    if !isPremium {
+    // 2. If no custom servers are set, check Family Shield flag
+    if isFamily {
       return (
-        ["1.1.1.1", "1.0.0.1", "2606:4700:4700::1111", "2606:4700:4700::1001"],
-        "https://cloudflare-dns.com/dns-query",
-        "Aegis Guard DNS (Basic Mode)"
+        ["94.140.14.15", "94.140.15.16", "2a10:50c0::bad1:ff", "2a10:50c0::bad2:ff"],
+        "https://dns-family.adguard-dns.com/dns-query",
+        "Aegis Guard Family Shield"
       )
     }
 
-    // Default: Aegis Secure / AdGuard Public Anycast DNS with full dual-stack IPv4/IPv6 bootstrap
+    // 3. Fallback default: Aegis Secure / AdGuard Public Anycast DNS with full dual-stack IPv4/IPv6 bootstrap
     return (
       ["94.140.14.14", "94.140.15.15", "2a10:50c0::ad1:ff", "2a10:50c0::ad2:ff"],
       "https://dns.adguard-dns.com/dns-query",
-      "Aegis Guard DNS"
+      "Aegis Guard DNS (Default)"
     )
   }
 
@@ -163,6 +168,9 @@ public class AdGuardVpnModule: Module {
       UserDefaults.standard.set(servers, forKey: "aegis_selected_dns_servers")
       UserDefaults.standard.set(blockingMode, forKey: "aegis_blocking_mode")
 
+      let isFamily = servers.contains("94.140.14.15") || servers.contains("1.1.1.3")
+      UserDefaults.standard.set(isFamily, forKey: "aegis_family_protection")
+
       let manager = NEDNSSettingsManager.shared()
       manager.loadFromPreferences { loadError in
         guard loadError == nil else {
@@ -200,6 +208,11 @@ public class AdGuardVpnModule: Module {
 
     AsyncFunction("setFamilyProtectionEnabled") { (enabled: Bool, promise: Promise) in
       UserDefaults.standard.set(enabled, forKey: "aegis_family_protection")
+      if enabled {
+        UserDefaults.standard.set(["94.140.14.15", "94.140.15.16"], forKey: "aegis_selected_dns_servers")
+      } else {
+        UserDefaults.standard.set(["94.140.14.14", "94.140.15.15"], forKey: "aegis_selected_dns_servers")
+      }
 
       let manager = NEDNSSettingsManager.shared()
       manager.loadFromPreferences { loadError in
@@ -219,11 +232,7 @@ public class AdGuardVpnModule: Module {
           manager.onDemandRules = nil
         }
 
-        if manager.isEnabled {
-          manager.saveToPreferences { _ in
-            promise.resolve(true)
-          }
-        } else {
+        manager.saveToPreferences { _ in
           promise.resolve(true)
         }
       }

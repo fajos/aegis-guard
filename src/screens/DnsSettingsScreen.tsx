@@ -109,8 +109,19 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
     })();
   }, []);
 
-  const handleSelectPreset = (preset: PresetServer) => {
+  const handleSelectPreset = async (preset: PresetServer) => {
     setSelectedServers(preset.servers);
+    try {
+      await AdGuardVpn.setDnsSettings(preset.servers, blockingMode);
+      cachedServers = preset.servers;
+      cachedBlockingMode = blockingMode;
+      Alert.alert(
+        'DNS Resolver Updated',
+        `Active upstream resolver set to "${preset.name}".\n\nYour profile in iOS Settings > General > VPN & Device Management > DNS has been updated.`
+      );
+    } catch (e: any) {
+      Alert.alert('Update Failed', e.message || 'Could not update DNS settings');
+    }
   };
 
   const handleAddCustom = () => {

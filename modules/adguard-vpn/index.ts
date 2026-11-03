@@ -1177,6 +1177,12 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
     this.dnsConfig.upstreamDnsServers = upstreamServers;
     this.dnsConfig.blockingMode = (blockingModeStr as any) || 'NXDOMAIN';
     AsyncStorage.setItem(STORAGE_KEYS.DNS, JSON.stringify(this.dnsConfig)).catch(() => {});
+
+    // Sync familyProtection flag with upstream servers
+    const isFamilyServer = upstreamServers.includes('94.140.14.15') || upstreamServers.includes('1.1.1.3');
+    this.familyProtection = isFamilyServer;
+    AsyncStorage.setItem(STORAGE_KEYS.FAMILY_PROTECTION, isFamilyServer ? 'true' : 'false').catch(() => {});
+
     if (resolvedNativeModule && typeof resolvedNativeModule.setDnsSettings === 'function') {
       try {
         await resolvedNativeModule.setDnsSettings(upstreamServers, blockingModeStr);
