@@ -77,33 +77,10 @@ public class AdGuardVpnModule: Module {
         manager.localizedDescription = "Aegis Guard DNS"
         manager.dnsSettings = dohSettings
 
-        // Build on-demand rules: exception rules (.neverConnect) + connect rule
-        var rules: [NEOnDemandRule] = []
-        let rawExcluded = UserDefaults.standard.stringArray(forKey: "aegis_excluded_domains") ?? []
-        let excluded = self.sanitizeDomains(rawExcluded)
-        if excluded != rawExcluded {
-          UserDefaults.standard.set(excluded, forKey: "aegis_excluded_domains")
-        }
-        if !excluded.isEmpty {
-          var allMatchDomains: [String] = []
-          for d in excluded {
-            allMatchDomains.append(d)
-            if !d.hasPrefix("*.") {
-              allMatchDomains.append("*." + d)
-            }
-          }
-          let evalRule = NEEvaluateConnectionRule(matchDomains: allMatchDomains, andAction: .neverConnect)
-          let onDemandEval = NEOnDemandRuleEvaluateConnection()
-          onDemandEval.interfaceTypeMatch = .any
-          onDemandEval.connectionRules = [evalRule]
-          rules.append(onDemandEval)
-        }
-
+        // Unconditionally use standard NEOnDemandRuleConnect to ensure all apps & sites resolve reliably
         let connectRule = NEOnDemandRuleConnect()
         connectRule.interfaceTypeMatch = .any
-        rules.append(connectRule)
-
-        manager.onDemandRules = rules
+        manager.onDemandRules = [connectRule]
 
         manager.saveToPreferences { saveError in
           if let error = saveError {
@@ -140,44 +117,7 @@ public class AdGuardVpnModule: Module {
     AsyncFunction("setExcludedDomains") { (domains: [String], promise: Promise) in
       let safeDomains = self.sanitizeDomains(domains)
       UserDefaults.standard.set(safeDomains, forKey: "aegis_excluded_domains")
-
-      let manager = NEDNSSettingsManager.shared()
-      manager.loadFromPreferences { loadError in
-        guard loadError == nil else {
-          promise.resolve(true)
-          return
-        }
-
-        let isPaused = manager.onDemandRules?.first is NEOnDemandRuleDisconnect
-        if manager.isEnabled && !isPaused {
-          var rules: [NEOnDemandRule] = []
-          if !safeDomains.isEmpty {
-            var allMatchDomains: [String] = []
-            for d in safeDomains {
-              allMatchDomains.append(d)
-              if !d.hasPrefix("*.") {
-                allMatchDomains.append("*." + d)
-              }
-            }
-            let evalRule = NEEvaluateConnectionRule(matchDomains: allMatchDomains, andAction: .neverConnect)
-            let onDemandEval = NEOnDemandRuleEvaluateConnection()
-            onDemandEval.interfaceTypeMatch = .any
-            onDemandEval.connectionRules = [evalRule]
-            rules.append(onDemandEval)
-          }
-
-          let connectRule = NEOnDemandRuleConnect()
-          connectRule.interfaceTypeMatch = .any
-          rules.append(connectRule)
-
-          manager.onDemandRules = rules
-          manager.saveToPreferences { _ in
-            promise.resolve(true)
-          }
-        } else {
-          promise.resolve(true)
-        }
-      }
+      promise.resolve(true)
     }
 
     AsyncFunction("isFamilyProtectionEnabled") { (promise: Promise) in
