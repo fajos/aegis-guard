@@ -1177,6 +1177,13 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
     this.dnsConfig.upstreamDnsServers = upstreamServers;
     this.dnsConfig.blockingMode = (blockingModeStr as any) || 'NXDOMAIN';
     AsyncStorage.setItem(STORAGE_KEYS.DNS, JSON.stringify(this.dnsConfig)).catch(() => {});
+    if (resolvedNativeModule && typeof resolvedNativeModule.setDnsSettings === 'function') {
+      try {
+        await resolvedNativeModule.setDnsSettings(upstreamServers, blockingModeStr);
+      } catch (e) {
+        console.warn('[AdGuardVpn] Native setDnsSettings error:', e);
+      }
+    }
     return true;
   }
 
@@ -1496,6 +1503,8 @@ export const AdGuardVpn: AdGuardVpnInterface = new Proxy(
               fallbackEngine.setLicenseState(args[0]).catch(() => {});
             } else if (prop === 'setExcludedDomains') {
               fallbackEngine.setExcludedDomains(args[0]).catch(() => {});
+            } else if (prop === 'setDnsSettings') {
+              fallbackEngine.setDnsSettings(args[0], args[1]).catch(() => {});
             }
             return nativeResult;
           } catch (e) {
