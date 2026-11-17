@@ -15,10 +15,39 @@ interface SettingsScreenProps {
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({ initialSubTab = 'dns' }) => {
   const [activeSubTab, setActiveSubTab] = useState<SettingsSubTab>(initialSubTab);
-  const { isLifetimePurchased, isTrialActive, trialExpired, daysRemaining, hoursRemaining, purchaseLifetime } = useLicense();
+  const { isLifetimePurchased, isTrialActive, trialExpired, daysRemaining, hoursRemaining, restorePurchases } = useLicense();
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
   const [legalTab, setLegalTab] = useState<LegalTab>('privacy');
+
+  const handleLicenseCardPress = () => {
+    if (isLifetimePurchased) {
+      Alert.alert(
+        '👑 Lifetime Pro Active',
+        'Your Lifetime Pro license is permanently active on this device.\n\nAll premium features, full in-app ad blocking, and family protection are unlocked forever.',
+        [
+          {
+            text: 'Restore Purchases',
+            onPress: async () => {
+              try {
+                const res = await restorePurchases();
+                if (res.restored) {
+                  Alert.alert('Purchases Restored', 'Your Lifetime Pro purchase is verified and active.');
+                } else {
+                  Alert.alert('No Purchase Found', 'No active purchase was found for this Apple ID.');
+                }
+              } catch (e: any) {
+                Alert.alert('Restore Note', e.message || 'Could not verify purchases.');
+              }
+            },
+          },
+          { text: 'Awesome', style: 'default' },
+        ]
+      );
+    } else {
+      setPaywallVisible(true);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -38,7 +67,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ initialSubTab = 
               ? styles.trialLicenseCard
               : styles.expiredLicenseCard
           }
-          onPress={() => setPaywallVisible(true)}
+          onPress={handleLicenseCardPress}
           activeOpacity={0.8}
         >
           <View style={styles.licenseCardLeft}>

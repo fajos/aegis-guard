@@ -23,7 +23,7 @@ export const LifetimePaywallModal: React.FC<LifetimePaywallModalProps> = ({
   onClose,
   reason,
 }) => {
-  const { purchaseLifetime, restorePurchases, priceString } = useLicense();
+  const { purchaseLifetime, restorePurchases, priceString, isLifetimePurchased } = useLicense();
   const [isProcessing, setIsProcessing] = useState(false);
   const [legalModalVisible, setLegalModalVisible] = useState(false);
   const [legalModalTab, setLegalModalTab] = useState<LegalTab>('privacy');
@@ -102,9 +102,13 @@ export const LifetimePaywallModal: React.FC<LifetimePaywallModalProps> = ({
               <View style={styles.crownCircle}>
                 <Text style={styles.crownEmoji}>👑</Text>
               </View>
-              <Text style={styles.heroTitle}>Aegis Guard Lifetime</Text>
+              <Text style={styles.heroTitle}>
+                {isLifetimePurchased ? 'Lifetime Pro Active' : 'Aegis Guard Lifetime'}
+              </Text>
               <Text style={styles.heroSubtitle}>
-                Pay once. Keep forever. Zero monthly or annual subscriptions.
+                {isLifetimePurchased
+                  ? 'Your license is permanently active. All features and in-app ad blocking are unlocked.'
+                  : 'Pay once. Keep forever. Zero monthly or annual subscriptions.'}
               </Text>
             </View>
 
@@ -118,13 +122,27 @@ export const LifetimePaywallModal: React.FC<LifetimePaywallModalProps> = ({
             {/* Price Badge Hero */}
             <View style={styles.priceContainer}>
               <View style={styles.discountBadge}>
-                <Text style={styles.discountBadgeText}>🔥 50% OFF LAUNCH SPECIAL</Text>
+                <Text style={styles.discountBadgeText}>
+                  {isLifetimePurchased ? '✓ PERMANENTLY UNLOCKED' : '🔥 50% OFF LAUNCH SPECIAL'}
+                </Text>
               </View>
               <View style={styles.priceRow}>
-                <Text style={styles.originalPrice}>$9.99</Text>
-                <Text style={styles.finalPrice}>{priceString}</Text>
+                {isLifetimePurchased ? (
+                  <Text style={[styles.finalPrice, { color: '#10B981', fontSize: 20 }]}>
+                    Active Pro License
+                  </Text>
+                ) : (
+                  <>
+                    <Text style={styles.originalPrice}>$9.99</Text>
+                    <Text style={styles.finalPrice}>{priceString}</Text>
+                  </>
+                )}
               </View>
-              <Text style={styles.pricePeriod}>One-time payment • Lifetime access</Text>
+              <Text style={styles.pricePeriod}>
+                {isLifetimePurchased
+                  ? 'Purchased & Verified via Apple StoreKit'
+                  : 'One-time payment • Lifetime access'}
+              </Text>
             </View>
 
             {/* Value Highlights */}
@@ -181,20 +199,32 @@ export const LifetimePaywallModal: React.FC<LifetimePaywallModalProps> = ({
             </View>
 
             {/* Purchase CTA */}
-            <TouchableOpacity
-              style={[styles.purchaseButton, isProcessing && styles.purchaseButtonDisabled]}
-              onPress={handlePurchase}
-              disabled={isProcessing}
-              activeOpacity={0.85}
-            >
-              {isProcessing ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
-              ) : (
+            {isLifetimePurchased ? (
+              <TouchableOpacity
+                style={[styles.purchaseButton, { backgroundColor: '#10B981' }]}
+                onPress={onClose}
+                activeOpacity={0.85}
+              >
                 <Text style={styles.purchaseButtonText}>
-                  Unlock Lifetime Access • {priceString}
+                  ✓ Lifetime Access Active • Close
                 </Text>
-              )}
-            </TouchableOpacity>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[styles.purchaseButton, isProcessing && styles.purchaseButtonDisabled]}
+                onPress={handlePurchase}
+                disabled={isProcessing}
+                activeOpacity={0.85}
+              >
+                {isProcessing ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={styles.purchaseButtonText}>
+                    Unlock Lifetime Access • {priceString}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            )}
 
             {/* Restore Purchases & Legal */}
             <View style={styles.footerRow}>
