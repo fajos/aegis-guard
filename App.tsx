@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import { FiltersScreen } from './src/screens/FiltersScreen';
 import { AppManagementScreen } from './src/screens/AppManagementScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { FilterAutoUpdateBanner } from './src/components/FilterAutoUpdateBanner';
+import { initPurchases } from './src/utils/license';
 
 type Tab = 'dashboard' | 'queryLog' | 'filters' | 'apps' | 'settings';
 
@@ -93,6 +94,10 @@ function MainNavigator(): React.JSX.Element {
 }
 
 export default function App(): React.JSX.Element {
+  useEffect(() => {
+    initPurchases();
+  }, []);
+
   return (
     <SafeAreaProvider>
       <MainNavigator />

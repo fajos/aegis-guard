@@ -5,6 +5,9 @@ import {
   subscribeLicense,
   purchaseLifetime as doPurchaseLifetime,
   restorePurchases as doRestorePurchases,
+  getLifetimePackage,
+  PurchaseResult,
+  RestoreResult,
 } from '../utils/license';
 
 export function useLicense() {
@@ -19,10 +22,21 @@ export function useLicense() {
     isLoaded: false,
   });
 
+  const [priceString, setPriceString] = useState<string>('$4.99');
+
   useEffect(() => {
     const unsubscribe = subscribeLicense((updatedState) => {
       setLicense(updatedState);
     });
+
+    // Fetch localized price string from RevenueCat / Apple StoreKit if available
+    getLifetimePackage()
+      .then((pkg) => {
+        if (pkg?.product?.priceString) {
+          setPriceString(pkg.product.priceString);
+        }
+      })
+      .catch(() => {});
 
     // Check periodically every 60 seconds to update remaining hours/minutes countdown
     const timer = setInterval(() => {
@@ -37,22 +51,22 @@ export function useLicense() {
     };
   }, []);
 
-  const purchaseLifetime = useCallback(async () => {
-    const success = await doPurchaseLifetime();
-    if (success) {
+  const purchaseLifetime = useCallback(async (): Promise<PurchaseResult> => {
+    const result = await doPurchaseLifetime();
+    if (result.success) {
       const updated = await getLicenseState();
       setLicense(updated);
     }
-    return success;
+    return result;
   }, []);
 
-  const restorePurchases = useCallback(async () => {
-    const success = await doRestorePurchases();
-    if (success) {
+  const restorePurchases = useCallback(async (): Promise<RestoreResult> => {
+    const result = await doRestorePurchases();
+    if (result.restored) {
       const updated = await getLicenseState();
       setLicense(updated);
     }
-    return success;
+    return result;
   }, []);
 
   const refreshLicense = useCallback(async () => {
@@ -69,6 +83,7 @@ export function useLicense() {
     trialExpired: !license.isPremium,
     daysRemaining: license.daysRemaining,
     hoursRemaining: license.hoursRemaining,
+    priceString,
     purchaseLifetime,
     restorePurchases,
     refreshLicense,

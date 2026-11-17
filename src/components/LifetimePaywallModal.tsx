@@ -23,7 +23,7 @@ export const LifetimePaywallModal: React.FC<LifetimePaywallModalProps> = ({
   onClose,
   reason,
 }) => {
-  const { purchaseLifetime, restorePurchases } = useLicense();
+  const { purchaseLifetime, restorePurchases, priceString } = useLicense();
   const [isProcessing, setIsProcessing] = useState(false);
   const [legalModalVisible, setLegalModalVisible] = useState(false);
   const [legalModalTab, setLegalModalTab] = useState<LegalTab>('privacy');
@@ -31,15 +31,17 @@ export const LifetimePaywallModal: React.FC<LifetimePaywallModalProps> = ({
   const handlePurchase = async () => {
     setIsProcessing(true);
     try {
-      const success = await purchaseLifetime();
-      if (success) {
+      const result = await purchaseLifetime();
+      if (result.success) {
         Alert.alert(
           '🎉 Lifetime Pro Unlocked!',
           'Thank you for supporting Aegis Guard. Full in-app ad blocking and all premium features are now unlocked forever on your device.',
           [{ text: 'Awesome', onPress: onClose }]
         );
+      } else if (result.userCancelled) {
+        // User closed Apple's payment sheet without error
       } else {
-        Alert.alert('Error', 'Unable to complete purchase. Please try again.');
+        Alert.alert('Purchase Error', result.error || 'Unable to complete purchase. Please try again.');
       }
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Purchase failed');
@@ -51,17 +53,19 @@ export const LifetimePaywallModal: React.FC<LifetimePaywallModalProps> = ({
   const handleRestore = async () => {
     setIsProcessing(true);
     try {
-      const restored = await restorePurchases();
-      if (restored) {
+      const result = await restorePurchases();
+      if (result.restored) {
         Alert.alert(
           'Purchase Restored',
           'Your Lifetime Pro license was successfully restored!',
           [{ text: 'OK', onPress: onClose }]
         );
+      } else if (result.error) {
+        Alert.alert('Restore Failed', result.error);
       } else {
         Alert.alert(
           'No Purchase Found',
-          'We could not find an active Lifetime Pro purchase on this account.'
+          'We could not find an active Lifetime Pro purchase on this Apple ID.'
         );
       }
     } catch (e: any) {
@@ -118,7 +122,7 @@ export const LifetimePaywallModal: React.FC<LifetimePaywallModalProps> = ({
               </View>
               <View style={styles.priceRow}>
                 <Text style={styles.originalPrice}>$9.99</Text>
-                <Text style={styles.finalPrice}>$4.99</Text>
+                <Text style={styles.finalPrice}>{priceString}</Text>
               </View>
               <Text style={styles.pricePeriod}>One-time payment • Lifetime access</Text>
             </View>
@@ -187,7 +191,7 @@ export const LifetimePaywallModal: React.FC<LifetimePaywallModalProps> = ({
                 <ActivityIndicator color="#FFFFFF" size="small" />
               ) : (
                 <Text style={styles.purchaseButtonText}>
-                  Unlock Lifetime Access • $4.99
+                  Unlock Lifetime Access • {priceString}
                 </Text>
               )}
             </TouchableOpacity>

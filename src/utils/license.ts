@@ -1,5 +1,13 @@
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Purchases, {
+  CustomerInfo,
+  PurchasesPackage,
+  LOG_LEVEL,
+} from 'react-native-purchases';
 import { AdGuardVpn } from '../native/AdGuardVpnModule';
+
+export const REVENUECAT_APPLE_API_KEY = 'appl_CGaRZbQRSoQkJGBcWTcVFUAfPyh';
 
 export const TRIAL_DURATION_MS = 3 * 24 * 60 * 60 * 1000; // 3 Days (72 Hours)
 export const CURRENT_BUILD_VERSION = '1.0.15';
@@ -19,6 +27,18 @@ export interface LicenseState {
   minutesRemaining: number;
   totalMsRemaining: number;
   isLoaded: boolean;
+}
+
+export interface PurchaseResult {
+  success: boolean;
+  userCancelled?: boolean;
+  error?: string;
+}
+
+export interface RestoreResult {
+  success: boolean;
+  restored: boolean;
+  error?: string;
 }
 
 let cachedLicenseState: LicenseState = {
@@ -43,6 +63,72 @@ function notifyListeners() {
       console.error('[license] Error notifying listener:', e);
     }
   });
+}
+
+let isRevenueCatConfigured = false;
+
+/**
+ * Checks whether a CustomerInfo object from RevenueCat contains an active lifetime or pro entitlement
+ */
+export function isCustomerEntitled(customerInfo: CustomerInfo | null | undefined): boolean {
+  if (!customerInfo) return false;
+
+  // 1. Any active entitlement in RevenueCat (e.g. 'pro', 'premium', 'lifetime')
+  const activeEntitlements = customerInfo.entitlements?.active;
+  if (activeEntitlements && Object.keys(activeEntitlements).length > 0) {
+    return true;
+  }
+
+  // 2. Non-subscription transactions (e.g. lifetime non-consumable purchase)
+  if (customerInfo.nonSubscriptionTransactions && customerInfo.nonSubscriptionTransactions.length > 0) {
+    return true;
+  }
+
+  // 3. All purchased product identifiers recorded by StoreKit
+  if (customerInfo.allPurchasedProductIdentifiers && customerInfo.allPurchasedProductIdentifiers.length > 0) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Initializes RevenueCat SDK with the Apple Public API Key
+ */
+export function initPurchases(): void {
+  if (isRevenueCatConfigured) return;
+
+  if (Platform.OS === 'ios') {
+    try {
+      Purchases.setLogLevel(LOG_LEVEL.DEBUG);
+      Purchases.configure({ apiKey: REVENUECAT_APPLE_API_KEY });
+      isRevenueCatConfigured = true;
+
+      // Listen for customer info updates (e.g. family sharing, renewals, or restores)
+      Purchases.addCustomerInfoUpdateListener((customerInfo) => {
+        if (isCustomerEntitled(customerInfo)) {
+          AsyncStorage.setItem(LICENSE_STORAGE_KEYS.LIFETIME_PURCHASED, 'true').then(() => {
+            getLicenseState().then(notifyListeners);
+          });
+        }
+      });
+
+      // Synchronize initial customer info in background
+      Purchases.getCustomerInfo()
+        .then((customerInfo) => {
+          if (isCustomerEntitled(customerInfo)) {
+            AsyncStorage.setItem(LICENSE_STORAGE_KEYS.LIFETIME_PURCHASED, 'true').then(() => {
+              getLicenseState().then(notifyListeners);
+            });
+          }
+        })
+        .catch((e) => {
+          console.warn('[license] RevenueCat initial getCustomerInfo note:', e?.message || e);
+        });
+    } catch (e) {
+      console.error('[license] Failed to configure RevenueCat Purchases:', e);
+    }
+  }
 }
 
 /**
@@ -128,40 +214,127 @@ export function subscribeLicense(listener: LicenseListener): () => void {
 }
 
 /**
- * Unlocks Lifetime Pro Access (One-Off Purchase)
+ * Fetches the active Lifetime Pro package from RevenueCat offerings
  */
-export async function purchaseLifetime(): Promise<boolean> {
+export async function getLifetimePackage(): Promise<PurchasesPackage | null> {
   try {
-    await AsyncStorage.setItem(LICENSE_STORAGE_KEYS.LIFETIME_PURCHASED, 'true');
-    await getLicenseState();
-    notifyListeners();
-    return true;
+    if (Platform.OS === 'ios') {
+      initPurchases();
+      const offerings = await Purchases.getOfferings();
+      if (offerings.current && offerings.current.availablePackages.length > 0) {
+        return offerings.current.lifetime || offerings.current.availablePackages[0];
+      }
+      for (const offering of Object.values(offerings.all)) {
+        if (offering.availablePackages.length > 0) {
+          return offering.lifetime || offering.availablePackages[0];
+        }
+      }
+    }
   } catch (e) {
+    console.warn('[license] Failed to fetch offerings:', e);
+  }
+  return null;
+}
+
+/**
+ * Unlocks Lifetime Pro Access via RevenueCat and Apple StoreKit
+ */
+export async function purchaseLifetime(): Promise<PurchaseResult> {
+  try {
+    if (Platform.OS === 'ios') {
+      initPurchases();
+      const offerings = await Purchases.getOfferings();
+      let packageToBuy: PurchasesPackage | undefined = undefined;
+
+      if (offerings.current && offerings.current.availablePackages.length > 0) {
+        packageToBuy = offerings.current.lifetime || offerings.current.availablePackages[0];
+      }
+
+      if (!packageToBuy) {
+        for (const offering of Object.values(offerings.all)) {
+          if (offering.availablePackages.length > 0) {
+            packageToBuy = offering.lifetime || offering.availablePackages[0];
+            break;
+          }
+        }
+      }
+
+      if (packageToBuy) {
+        const { customerInfo } = await Purchases.purchasePackage(packageToBuy);
+        if (isCustomerEntitled(customerInfo)) {
+          await AsyncStorage.setItem(LICENSE_STORAGE_KEYS.LIFETIME_PURCHASED, 'true');
+          await getLicenseState();
+          notifyListeners();
+          return { success: true };
+        }
+        return { success: false, error: 'Purchase did not unlock active entitlement.' };
+      } else {
+        // Fallback: check direct product lookup if offering not configured yet
+        const fallbackProducts = await Purchases.getProducts([
+          'com.fajostech.aegisguard.lifetime',
+          'aegis_lifetime_pro',
+          'lifetime_pro',
+        ]);
+        if (fallbackProducts && fallbackProducts.length > 0) {
+          const { customerInfo } = await Purchases.purchaseStoreProduct(fallbackProducts[0]);
+          if (isCustomerEntitled(customerInfo)) {
+            await AsyncStorage.setItem(LICENSE_STORAGE_KEYS.LIFETIME_PURCHASED, 'true');
+            await getLicenseState();
+            notifyListeners();
+            return { success: true };
+          }
+        }
+        return {
+          success: false,
+          error: 'No in-app purchase packages configured in RevenueCat. Please verify your Offering in the RevenueCat dashboard.',
+        };
+      }
+    } else {
+      // Android / Simulator fallback
+      await AsyncStorage.setItem(LICENSE_STORAGE_KEYS.LIFETIME_PURCHASED, 'true');
+      await getLicenseState();
+      notifyListeners();
+      return { success: true };
+    }
+  } catch (e: any) {
+    if (e.userCancelled) {
+      return { success: false, userCancelled: true };
+    }
     console.error('[license] purchaseLifetime error:', e);
-    return false;
+    return { success: false, error: e.message || 'Unable to complete in-app purchase.' };
   }
 }
 
 /**
- * Restores past in-app purchase
+ * Restores past in-app purchases via RevenueCat & Apple StoreKit
  */
-export async function restorePurchases(): Promise<boolean> {
+export async function restorePurchases(): Promise<RestoreResult> {
   try {
-    const purchased = await AsyncStorage.getItem(LICENSE_STORAGE_KEYS.LIFETIME_PURCHASED);
-    const hasBought = purchased === 'true';
-    await getLicenseState();
-    notifyListeners();
-    return hasBought;
-  } catch (e) {
+    if (Platform.OS === 'ios') {
+      initPurchases();
+      const customerInfo = await Purchases.restorePurchases();
+      const hasPurchased = isCustomerEntitled(customerInfo);
+      if (hasPurchased) {
+        await AsyncStorage.setItem(LICENSE_STORAGE_KEYS.LIFETIME_PURCHASED, 'true');
+      }
+      await getLicenseState();
+      notifyListeners();
+      return { success: true, restored: hasPurchased };
+    } else {
+      const purchased = await AsyncStorage.getItem(LICENSE_STORAGE_KEYS.LIFETIME_PURCHASED);
+      const hasBought = purchased === 'true';
+      await getLicenseState();
+      notifyListeners();
+      return { success: true, restored: hasBought };
+    }
+  } catch (e: any) {
     console.error('[license] restorePurchases error:', e);
-    return false;
+    return { success: false, restored: false, error: e.message || 'Failed to restore purchases.' };
   }
 }
 
 /**
  * Debug/Testing utility: Simulates trial expiration or resets trial
- * Pass daysOffset = 4 to simulate expired trial (Day 4)
- * Pass daysOffset = 0 to reset trial back to 3 full days
  */
 export async function resetTrialForTesting(daysOffset: number = 0): Promise<void> {
   const simulatedInstallTime = Date.now() - daysOffset * 24 * 60 * 60 * 1000;
@@ -171,5 +344,6 @@ export async function resetTrialForTesting(daysOffset: number = 0): Promise<void
   notifyListeners();
 }
 
-// Automatically initialize license check in background on module import
+// Automatically initialize license check & RevenueCat on import
 getLicenseState().catch(() => {});
+initPurchases();
