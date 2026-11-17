@@ -141,6 +141,16 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
     setSelectedServers(selectedServers.filter((s) => s !== server));
   };
 
+  const handleSelectMode = async (mode: 'ADDRESS' | 'NXDOMAIN' | 'REFUSED') => {
+    setBlockingMode(mode);
+    try {
+      await AdGuardVpn.setDnsSettings(selectedServers, mode);
+      cachedBlockingMode = mode;
+    } catch (e) {
+      console.error('Failed to auto-apply blocking mode:', e);
+    }
+  };
+
   const handleSave = async () => {
     try {
       await AdGuardVpn.setDnsSettings(selectedServers, blockingMode);
@@ -292,7 +302,7 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
                 styles.modeCard,
                 blockingMode === item.mode && styles.modeCardSelected,
               ]}
-              onPress={() => setBlockingMode(item.mode)}
+              onPress={() => handleSelectMode(item.mode)}
             >
               <Text
                 style={[
