@@ -14,6 +14,7 @@ import { AppManagementScreen } from './src/screens/AppManagementScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { FilterAutoUpdateBanner } from './src/components/FilterAutoUpdateBanner';
 import { initPurchases } from './src/utils/license';
+import { syncCategoriesAndSafari } from './src/utils/backup';
 
 type Tab = 'dashboard' | 'queryLog' | 'filters' | 'apps' | 'settings';
 
@@ -96,6 +97,7 @@ function MainNavigator(): React.JSX.Element {
 export default function App(): React.JSX.Element {
   useEffect(() => {
     initPurchases();
+    syncCategoriesAndSafari().catch(() => {});
   }, []);
 
   return (

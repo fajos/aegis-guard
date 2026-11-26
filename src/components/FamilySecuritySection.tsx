@@ -25,6 +25,7 @@ export const FamilySecuritySection: React.FC = () => {
   const [familyProtectionEnabled, setFamilyProtectionEnabled] = useState(false);
   const [safeSearchEnabled, setSafeSearchEnabled] = useState(false);
   const [parentalLockEnabled, setParentalLockEnabled] = useState(false);
+  const [threatAlertsEnabled, setThreatAlertsEnabled] = useState(true);
   const [enabledCategories, setEnabledCategories] = useState<Record<CategoryId, boolean>>({
     social: false,
     gambling: false,
@@ -46,16 +47,20 @@ export const FamilySecuritySection: React.FC = () => {
     (async () => {
       try {
         if (!AdGuardVpn) return;
-        const [safe, locked, family, rawCats, rawSched] = await Promise.all([
+        const [safe, locked, family, threatAlerts, rawCats, rawSched] = await Promise.all([
           AdGuardVpn.isSafeSearchEnabled(),
           AdGuardVpn.isParentalLockEnabled(),
           AdGuardVpn.isFamilyProtectionEnabled(),
+          typeof AdGuardVpn.isThreatAlertsEnabled === 'function'
+            ? AdGuardVpn.isThreatAlertsEnabled()
+            : Promise.resolve(true),
           AsyncStorage.getItem(CATEGORY_STORAGE_KEYS.CATEGORIES),
           AsyncStorage.getItem(CATEGORY_STORAGE_KEYS.SCHEDULE),
         ]);
         setSafeSearchEnabled(safe);
         setParentalLockEnabled(locked);
         setFamilyProtectionEnabled(family);
+        setThreatAlertsEnabled(threatAlerts);
 
         let parsedCats: Record<CategoryId, boolean> = {
           social: false,
@@ -147,6 +152,21 @@ export const FamilySecuritySection: React.FC = () => {
       );
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Failed to update Parental Lock');
+    }
+  };
+
+  const handleToggleThreatAlerts = async (newValue: boolean) => {
+    if (!newValue && parentalLockEnabled) {
+      const ok = await authenticateWithBiometrics('Verify identity to disable Phishing Alerts');
+      if (!ok) return;
+    }
+    try {
+      if (typeof AdGuardVpn.setThreatAlertsEnabled === 'function') {
+        await AdGuardVpn.setThreatAlertsEnabled(newValue);
+      }
+      setThreatAlertsEnabled(newValue);
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Failed to update Threat Alerts');
     }
   };
 
@@ -263,6 +283,29 @@ export const FamilySecuritySection: React.FC = () => {
 
         <Text style={styles.cardDescription}>
           Prevents unauthorized changes. Anyone attempting to pause protection or delete filter rules will be prompted for device biometric authentication.
+        </Text>
+      </View>
+
+      {/* Real-Time Phishing & Threat Alerts Card */}
+      <View style={styles.card}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardIcon}>🚨</Text>
+          <View style={styles.cardHeaderText}>
+            <Text style={styles.cardTitle}>Real-Time Phishing Alerts</Text>
+            <Text style={styles.cardSubtitle}>
+              Instant on-device notification on blocked phishing/scam links
+            </Text>
+          </View>
+          <Switch
+            value={threatAlertsEnabled}
+            onValueChange={handleToggleThreatAlerts}
+            trackColor={{ false: '#D1D5DB', true: '#FCA5A5' }}
+            thumbColor={threatAlertsEnabled ? '#DC2626' : '#F3F4F6'}
+          />
+        </View>
+
+        <Text style={styles.cardDescription}>
+          Alerts you immediately with a local notification whenever the VPN tunnel blocks a clicked phishing link, Punycode lookalike domain, or cryptomining script.
         </Text>
       </View>
 

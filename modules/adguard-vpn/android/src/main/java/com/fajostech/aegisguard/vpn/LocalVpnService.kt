@@ -20,6 +20,7 @@ import com.fajostech.aegisguard.filter.DnsFilterEngine
 import com.fajostech.aegisguard.filter.FilterRepository
 import com.fajostech.aegisguard.stats.StatisticsManager
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Android VPN Service mirroring Aegis Guard's LocalVpnService.
@@ -33,11 +34,18 @@ class LocalVpnService : VpnService() {
         const val ACTION_STOP = "com.fajostech.aegisguard.ACTION_STOP"
         const val ACTION_RECONFIGURE = "com.fajostech.aegisguard.ACTION_RECONFIGURE"
         private const val NOTIFICATION_CHANNEL_ID = "adguard_vpn_channel"
+        private const val THREAT_CHANNEL_ID = "aegis_threat_alerts"
         private const val NOTIFICATION_ID = 1001
+        private const val THREAT_COOLDOWN_MS = 10 * 60 * 1000L
 
         @Volatile
         var isServiceRunning = false
             private set
+
+        @Volatile
+        var threatAlertsEnabled = true
+
+        private val threatCooldownMap = ConcurrentHashMap<String, Long>()
 
         val filterEngine = DnsFilterEngine()
         var currentConfig = VpnConfiguration()
@@ -262,6 +270,7 @@ class LocalVpnService : VpnService() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val channel = NotificationChannel(
                 NOTIFICATION_CHANNEL_ID,
                 "Aegis Guard Protection Service",
@@ -269,8 +278,51 @@ class LocalVpnService : VpnService() {
             ).apply {
                 description = "Shows status of Aegis Guard DNS protection"
             }
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(channel)
+
+            val threatChannel = NotificationChannel(
+                THREAT_CHANNEL_ID,
+                "Phishing & Scam Threat Alerts",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Alerts immediately when a phishing, homograph, or scam domain is blocked"
+            }
+            manager.createNotificationChannel(threatChannel)
+        }
+    }
+
+    fun notifyThreatBlocked(domain: String, rule: String) {
+        if (!threatAlertsEnabled) return
+        val now = System.currentTimeMillis()
+        val lastAlert = threatCooldownMap[domain]
+        if (lastAlert != null && (now - lastAlert) < THREAT_COOLDOWN_MS) return
+        threatCooldownMap[domain] = now
+
+        try {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            val pendingIntent = if (launchIntent != null) {
+                PendingIntent.getActivity(
+                    this, 200, launchIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            } else null
+
+            val notif = NotificationCompat.Builder(this, THREAT_CHANNEL_ID)
+                .setContentTitle("Phishing / Threat Blocked")
+                .setContentText("AegisGuard blocked dangerous domain: $domain")
+                .setStyle(NotificationCompat.BigTextStyle().bigText("AegisGuard blocked a suspected phishing, homograph, or scam domain ($domain). Rule: $rule"))
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+            if (pendingIntent != null) {
+                notif.setContentIntent(pendingIntent)
+            }
+            manager.notify((domain.hashCode() and 0x7FFFFFFF), notif.build())
+        } catch (_: SecurityException) {
+            // POST_NOTIFICATIONS not granted on Android 13+
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to post threat alert notification", e)
         }
     }
 

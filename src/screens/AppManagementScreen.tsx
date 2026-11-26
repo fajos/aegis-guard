@@ -266,7 +266,7 @@ export const AppManagementScreen: React.FC<AppManagementScreenProps> = ({ isActi
           <View style={styles.iosInfoCard}>
             <Text style={styles.iosInfoTitle}>🛡️ Global iOS Protection Active</Text>
             <Text style={styles.iosInfoText}>
-              Apple's NetworkExtension framework (NEDNSSettingsManager) routes DNS requests globally across all apps on your device and does not allow toggling individual apps on or off separately.
+              Apple's NetworkExtension Local VPN Tunnel (NEPacketTunnelProvider) routes DNS requests across all apps on your device (apps, Safari, and third-party browsers). Consumer iOS does not allow per-app VPN exclusion toggles, so use Quick Game Mode below to pause temporarily.
             </Text>
             <Text style={[styles.iosInfoText, { marginTop: 8 }]}>
               Status:{' '}

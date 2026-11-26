@@ -27,6 +27,34 @@ class DnsFilterEngine(
         categoryDomains = domains.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet()
     }
 
+    private val phishingTokens = listOf(
+        "verify-account", "login-update", "secure-billing", "wallet-connect",
+        "free-nitro", "claim-prize", "appleid-support", "paypal-confirm",
+        "account-suspended", "seed-phrase", "recovery-wallet", "signin-verify"
+    )
+    private val phishingBrands = listOf(
+        "paypal", "apple", "google", "microsoft", "amazon", "bank",
+        "chase", "coinbase", "binance", "metamask", "wallet", "login", "verify", "secure"
+    )
+    private val cryptoMiners = setOf(
+        "coinhive.com", "crypto-loot.com", "authedmine.com",
+        "minero.cc", "webminepool.com", "jsecoin.com", "monerominer.rocks"
+    )
+
+    private fun checkPhishingThreat(domain: String): String? {
+        val lower = domain.lowercase()
+        if (lower.contains("xn--") && phishingBrands.any { lower.contains(it) }) {
+            return "||$lower^\$phishing-homograph"
+        }
+        if (phishingTokens.any { lower.contains(it) }) {
+            return "||$lower^\$phishing-shield"
+        }
+        if (cryptoMiners.any { lower == it || lower.endsWith(".$it") }) {
+            return "||$lower^\$cryptominer-threat"
+        }
+        return null
+    }
+
     private fun isDomainInCategory(domain: String): String? {
         val cats = categoryDomains
         if (cats.isEmpty()) return null
@@ -98,13 +126,15 @@ class DnsFilterEngine(
         // 4. Match against filtering rules
         return when (val match = matcher.match(domain)) {
             is RuleMatcher.MatchResult.Blocked -> {
+                val threatHit = checkPhishingThreat(domain) != null
                 blockedQueries.incrementAndGet()
                 EvaluationResult(
                     isBlocked = true,
                     domain = domain,
                     blockingMode = blockingMode,
                     ttl = blockedTtlSecs,
-                    matchedRule = match.rule.rawText
+                    matchedRule = match.rule.rawText,
+                    isThreatAlert = threatHit
                 )
             }
             is RuleMatcher.MatchResult.Rewrite -> {
@@ -128,22 +158,35 @@ class DnsFilterEngine(
                 )
             }
             is RuleMatcher.MatchResult.NoMatch -> {
-                val blockedCategory = isDomainInCategory(domain)
-                if (blockedCategory != null) {
+                val threatRule = checkPhishingThreat(domain)
+                if (threatRule != null) {
                     blockedQueries.incrementAndGet()
                     EvaluationResult(
                         isBlocked = true,
                         domain = domain,
                         blockingMode = blockingMode,
                         ttl = blockedTtlSecs,
-                        matchedRule = "||$blockedCategory^\$category"
+                        matchedRule = threatRule,
+                        isThreatAlert = true
                     )
                 } else {
-                    allowedQueries.incrementAndGet()
-                    EvaluationResult(
-                        isBlocked = false,
-                        domain = domain
-                    )
+                    val blockedCategory = isDomainInCategory(domain)
+                    if (blockedCategory != null) {
+                        blockedQueries.incrementAndGet()
+                        EvaluationResult(
+                            isBlocked = true,
+                            domain = domain,
+                            blockingMode = blockingMode,
+                            ttl = blockedTtlSecs,
+                            matchedRule = "||$blockedCategory^\$category"
+                        )
+                    } else {
+                        allowedQueries.incrementAndGet()
+                        EvaluationResult(
+                            isBlocked = false,
+                            domain = domain
+                        )
+                    }
                 }
             }
         }
@@ -274,6 +317,7 @@ class DnsFilterEngine(
         val domain: String,
         val blockingMode: BlockingMode = BlockingMode.ADDRESS,
         val ttl: Long = 3600L,
-        val matchedRule: String? = null
+        val matchedRule: String? = null,
+        val isThreatAlert: Boolean = false
     )
 }

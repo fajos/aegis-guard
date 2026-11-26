@@ -124,7 +124,7 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
       cachedBlockingMode = blockingMode;
       Alert.alert(
         'DNS Resolver Updated',
-        `Active upstream resolver set to "${preset.name}".\n\nYour profile in iOS Settings > General > VPN & Device Management > DNS has been updated.`
+        `Active upstream resolver set to "${preset.name}".\n\nAegisGuard's active DNS resolver has been updated.`
       );
     } catch (e: any) {
       Alert.alert('Update Failed', e.message || 'Could not update DNS settings');

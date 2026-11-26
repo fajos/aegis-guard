@@ -111,6 +111,9 @@ class TunPacketRouter(
 
         // Evaluate domain against AdGuard filtering rules
         val eval = filterEngine.evaluate(domain, question.type)
+        if (eval.isBlocked && eval.isThreatAlert && vpnService is LocalVpnService) {
+            vpnService.notifyThreatBlocked(domain, eval.matchedRule ?: "Phishing Shield")
+        }
 
         var dnsResponseBytes: ByteArray? = null
         var upstreamUsed: String? = null

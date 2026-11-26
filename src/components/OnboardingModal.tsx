@@ -56,14 +56,22 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ visible, onClo
     onClose();
   };
 
-  const handleOpenSettings = async () => {
-    if (Platform.OS === 'ios') {
-      await AdGuardVpn.startVpn().catch(() => {});
+  const handleActivateProtection = async () => {
+    try {
+      await AdGuardVpn.startVpn();
+      if (Platform.OS === 'ios' && typeof AdGuardVpn.requestNotificationPermission === 'function') {
+        await AdGuardVpn.requestNotificationPermission().catch(() => {});
+      }
+    } catch {
+      // Prompt dismissed or denied; fallback link still opens Settings if needed
     }
-    Linking.openSettings().catch(() => {});
+    await checkNativeStatus();
   };
 
   const isIos = Platform.OS === 'ios';
+
+  const maxStep = isIos ? 3 : 2;
+  const isFinalStep = step === maxStep;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={handleFinish}>
@@ -71,7 +79,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ visible, onClo
         <View style={styles.card}>
           <View style={styles.headerRow}>
             <Text style={styles.stepPill}>
-              Step {step + 1} of {isIos ? 3 : 2}
+              Step {step + 1} of {maxStep + 1}
             </Text>
             <TouchableOpacity onPress={handleFinish} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <Text style={styles.skipText}>Skip</Text>
@@ -83,21 +91,21 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ visible, onClo
               <>
                 <Text style={styles.heroEmoji}>🛡️</Text>
                 <Text style={styles.title}>
-                  {isIos ? 'Activate System-Wide Encrypted DNS' : 'Enable Local VPN Protection'}
+                  {isIos ? 'Activate Local VPN DNS Shield' : 'Enable Local VPN Protection'}
                 </Text>
                 <Text style={styles.desc}>
                   {isIos
-                    ? 'AegisGuard registers an encrypted DNS-over-HTTPS (DoH) profile natively on your iPhone so ads and trackers are filtered across all apps without battery drain.'
+                    ? 'AegisGuard creates a local on-device VPN DNS tunnel (NEPacketTunnelProvider) to block ads, trackers, category apps, and enforce SafeSearch across all apps without battery drain.'
                     : 'AegisGuard creates an on-device loopback VPN tunnel (10.0.0.2) to filter ad and tracker domains locally without routing your traffic through remote servers.'}
                 </Text>
 
                 {isIos ? (
                   <View style={styles.stepsBox}>
-                    <Text style={styles.stepLine}>1. Tap "Open iOS Settings" below.</Text>
+                    <Text style={styles.stepLine}>1. Tap "Activate Local VPN Shield" below.</Text>
                     <Text style={styles.stepLine}>
-                      2. Go to General &gt; VPN &amp; Device Management &gt; DNS.
+                      2. Tap "Allow" when iOS prompts to add AegisGuard VPN configurations.
                     </Text>
-                    <Text style={styles.stepLine}>3. Select "Aegis Guard DNS (Default)".</Text>
+                    <Text style={styles.stepLine}>3. Enjoy system-wide protection across apps &amp; browsers.</Text>
                   </View>
                 ) : (
                   <View style={styles.stepsBox}>
@@ -108,7 +116,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ visible, onClo
 
                 <View style={[styles.statusBadge, dnsActive ? styles.statusOk : styles.statusPending]}>
                   <Text style={[styles.statusText, dnsActive ? styles.statusTextOk : styles.statusTextPending]}>
-                    {dnsActive ? '✓ DNS Protection Active' : '⏳ Waiting for activation'}
+                    {dnsActive ? '✓ Local VPN Protection Active' : '⏳ Waiting for activation'}
                   </Text>
                   <TouchableOpacity onPress={checkNativeStatus} disabled={checking}>
                     {checking ? (
@@ -121,10 +129,10 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ visible, onClo
 
                 <TouchableOpacity
                   style={styles.secondaryBtn}
-                  onPress={isIos ? handleOpenSettings : () => AdGuardVpn.startVpn().then(checkNativeStatus)}
+                  onPress={handleActivateProtection}
                 >
                   <Text style={styles.secondaryBtnText}>
-                    {isIos ? 'Open iOS Settings' : 'Activate Local VPN'}
+                    {isIos ? 'Activate Local VPN Shield' : 'Activate Local VPN'}
                   </Text>
                 </TouchableOpacity>
               </>
@@ -133,15 +141,15 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ visible, onClo
             {isIos && step === 1 && (
               <>
                 <Text style={styles.heroEmoji}>🧭</Text>
-                <Text style={styles.title}>Enable Safari Web Ad Blocker</Text>
+                <Text style={styles.title}>Safari, SMS Filter &amp; Widget</Text>
                 <Text style={styles.desc}>
-                  Turn on AegisGuard's Safari Content Blocker to hide sponsored Yahoo Mail promos, YouTube mobile web ads, and cookie banners inside Safari.
+                  Enable Safari Web Ad Blocking (blocks sponsored Yahoo Mail promos &amp; YouTube web ads), offline SMS phishing screening, and add the Home Screen Widget.
                 </Text>
 
                 <View style={styles.stepsBox}>
-                  <Text style={styles.stepLine}>1. Open iOS Settings &gt; Apps &gt; Safari (or Safari).</Text>
-                  <Text style={styles.stepLine}>2. Tap Extensions &gt; AegisSafariBlocker.</Text>
-                  <Text style={styles.stepLine}>3. Toggle "Allow Extension" ON.</Text>
+                  <Text style={styles.stepLine}>1. Safari Ad Blocker: Settings &gt; Apps &gt; Safari &gt; Extensions &gt; AegisSafariBlocker.</Text>
+                  <Text style={styles.stepLine}>2. SMS Scam Filter (Optional): Settings &gt; Apps &gt; Messages &gt; Unknown &amp; Spam &gt; AegisSmsFilter.</Text>
+                  <Text style={styles.stepLine}>3. Widget &amp; Siri: Add the Aegis Guard Widget to your Home Screen or say "Enable AegisGuard".</Text>
                 </View>
 
                 <View style={[styles.statusBadge, safariActive ? styles.statusOk : styles.statusPending]}>
@@ -165,12 +173,27 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ visible, onClo
 
             {((isIos && step === 2) || (!isIos && step === 1)) && (
               <>
+                <Text style={styles.heroEmoji}>🚨</Text>
+                <Text style={styles.title}>Phishing &amp; Category Protection</Text>
+                <Text style={styles.desc}>
+                  Powerful family controls and scam defense that run 100% locally on your device — zero remote inspection.
+                </Text>
+                <View style={styles.stepsBox}>
+                  <Text style={styles.stepLine}>• Email &amp; Link Scanner: Paste suspicious emails, SMS, or URLs to detect brand spoofs &amp; homographs before tapping.</Text>
+                  <Text style={styles.stepLine}>• Real-Time Threat Alerts: Instant local alerts whenever the shield blocks a phishing or cryptojacking domain.</Text>
+                  <Text style={styles.stepLine}>• Category &amp; Bedtime Schedule: Block Social, Gambling, Gaming, Dating, or Crypto automatically on your schedule.</Text>
+                </View>
+              </>
+            )}
+
+            {isFinalStep && (
+              <>
                 <Text style={styles.heroEmoji}>🚀</Text>
                 <Text style={styles.title}>You're Protected!</Text>
                 <Text style={styles.desc}>
-                  • Zero remote logs — all inspection and settings remain on your device.{'\n'}
-                  • Switch between Aegis Secure DNS, Cloudflare, NextDNS, Control D, or custom sdns:// stamps anytime in Settings &gt; DNS.{'\n'}
-                  • Use Quick Game Mode to snooze protection temporarily when you want rewarded game ads.
+                  • Zero remote logs — DNS logs, Privacy Insights trends, and rule backups stay strictly on your device.{'\n'}
+                  • Custom Private DNS: Configure Aegis Secure DNS, NextDNS, Control D, Cloudflare, or sdns:// stamps in Settings &gt; DNS.{'\n'}
+                  • Tap any logged query to block or allow it immediately, or use Quick Game Mode for temporary rewarded ads.
                 </Text>
               </>
             )}
@@ -185,8 +208,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ visible, onClo
             <TouchableOpacity
               style={styles.primaryBtn}
               onPress={() => {
-                const maxStep = isIos ? 2 : 1;
-                if (step < maxStep) {
+                if (!isFinalStep) {
                   setStep((s) => s + 1);
                 } else {
                   handleFinish();
@@ -194,7 +216,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ visible, onClo
               }}
             >
               <Text style={styles.primaryBtnText}>
-                {(isIos && step === 2) || (!isIos && step === 1) ? 'Launch Shield' : 'Continue →'}
+                {isFinalStep ? 'Launch Shield' : 'Continue →'}
               </Text>
             </TouchableOpacity>
           </View>

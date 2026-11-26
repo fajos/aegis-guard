@@ -4,6 +4,7 @@ import { AdGuardVpn } from '../native/AdGuardVpnModule';
 import {
   BedtimeSchedule,
   buildSafariBlockerRules,
+  CATEGORY_DEFINITIONS,
   CategoryId,
   DEFAULT_SCHEDULE,
   getActiveCategoryDomains,
@@ -47,6 +48,17 @@ export async function syncCategoriesAndSafari(
 
     if (typeof AdGuardVpn.setCategoryDomains === 'function') {
       await AdGuardVpn.setCategoryDomains(activeDomains).catch(() => {});
+    }
+    if (typeof AdGuardVpn.setBedtimeSchedule === 'function') {
+      const scheduledDomains = CATEGORY_DEFINITIONS.filter((c) =>
+        (sched.categories || []).includes(c.id)
+      ).flatMap((c) => c.domains);
+      await AdGuardVpn.setBedtimeSchedule(
+        Boolean(sched.enabled),
+        sched.startHour,
+        sched.endHour,
+        scheduledDomains
+      ).catch(() => {});
     }
     if (Platform.OS === 'ios' && typeof AdGuardVpn.reloadSafariBlocker === 'function') {
       const safariRules = buildSafariBlockerRules({

@@ -1,6 +1,6 @@
 # Privacy Policy for AegisGuard: Ad & DNS Blocker
 
-**Effective Date:** November 2, 2026  
+**Effective Date:** November 26, 2026  
 **Developer:** Fajostech / Femi Adeyemi  
 **Application:** AegisGuard: Ad & DNS Blocker (`com.fajostech.aegisguard`)  
 **Contact:** fajostech@gmail.com  
@@ -23,6 +23,7 @@ AegisGuard: Ad & DNS Blocker is designed from the ground up as an on-device util
 Unlike traditional VPN providers or web proxies, AegisGuard does **not** collect or store:
 - ❌ **No Browsing History:** We never see or store the websites you visit, pages you view, or content you access.
 - ❌ **No DNS Query Logs on Remote Servers:** Your DNS requests are never sent to or recorded on our servers.
+- ❌ **No SMS or Email Message Contents:** Texts screened offline by `AegisSmsFilter` and emails/URLs inspected in the **Phishing Email & Link Scanner** never leave your device.
 - ❌ **No IP Address Tracking:** We do not record or track your public or private IP addresses.
 - ❌ **No Advertising Identifiers:** We do not read, track, or share your IDFA (Identifier for Advertisers) or Android Advertising ID.
 - ❌ **No Personal Identity Data:** We do not require you to create an account, register your email address, or provide your real name.
@@ -33,23 +34,30 @@ Unlike traditional VPN providers or web proxies, AegisGuard does **not** collect
 
 AegisGuard: Ad & DNS Blocker operates locally on your device using native operating system security frameworks:
 
-### A. iOS (Apple NetworkExtension Framework)
-- On iOS devices, AegisGuard configures encrypted **DNS-over-HTTPS (DoH)** via Apple's official `NEDNSSettingsManager` system API.
-- All DNS lookups are encrypted using TLS/HTTPS directly between your device and secure, privacy-preserving upstream Anycast resolvers.
-- We operate no intermediate cloud proxy. All ad-blocking evaluation occurs via encrypted DNS filtering or locally on your hardware.
+### A. iOS (NetworkExtension, Safari, IdentityLookup, WidgetKit & AppIntents)
+- **`AegisPacketTunnel` (`NEPacketTunnelProvider`):** Runs an on-device local DNS loopback tunnel (`10.0.0.2` → `10.0.0.1`) that enforces Category Blockers, Bedtime Schedules, custom user rules, SafeSearch rewrites, and phishing/cryptomining rules locally before forwarding allowed queries over encrypted **DNS-over-HTTPS (DoH)**. Only DNS traffic is routed through the tunnel; ordinary web/app connections stay direct for minimal battery and speed impact.
+- **`AegisSafariBlocker` (Safari Content Blocker):** Supplies network and cosmetic hiding rules directly to Safari so sponsored elements are hidden on-device without inspecting browsing history.
+- **`AegisSmsFilter` (`ILMessageFilterExtension`):** Uses Apple's IdentityLookup framework completely offline to flag unknown-sender scam/phishing SMS messages as Junk without contacting any external server.
+- **`AegisWidget` & Siri Shortcuts (`AppIntents`):** Reads protection status and counters exclusively from the local shared App Group sandbox (`group.com.fajostech.aegisguard`).
+- **Real-Time Threat Alerts (`UNUserNotificationCenter`):** Triggers local notifications strictly on-device when a dangerous phishing, Punycode homograph, or cryptomining domain is blocked.
 
 ### B. Android (Local Loopback VpnService)
-- On Android devices, AegisGuard uses the Android `VpnService` API to establish a local, on-device loopback interface (`10.0.0.2`).
-- Network packets are processed and filtered locally on your device's processor. No packets are forwarded through third-party remote VPN servers.
+- On Android devices, AegisGuard uses the Android `VpnService` API to establish a local, on-device loopback interface (`10.0.0.2`) with per-app split-tunneling (`addDisallowedApplication`), Category Blockers, custom rules, and encrypted DoH/UDP resolution.
+- Local packets are processed and filtered on your device's processor with zero traffic routed through third-party remote VPN proxy servers.
+- **Real-Time Threat Alerts:** Uses a high-importance local Android notification channel (`POST_NOTIFICATIONS`) solely on-device when a phishing/scam/cryptomining domain is blocked.
+
+### C. Phishing Email, SMS & Link Scanner
+- Text, sender headers (`From:`), SMS bodies, and URLs pasted into the **Phishing Email & Link Scanner** are evaluated strictly in volatile on-device memory for sender-brand mismatches, lookalike homographs, risky TLDs, urgency cues, and local filter hits. No inspected text or URL leaves your device.
 
 ---
 
 ## 4. Data Stored Locally on Your Device
 
-For the app to function properly, certain data is stored **strictly within your device's local application sandbox**:
-- **Query Logs:** If query logging is enabled, recent DNS queries (domain name, query type, timestamp, and blocked/allowed status) are saved exclusively to your device's local storage (`AsyncStorage`). This data never leaves your device. You can purge your query logs at any time with a single tap using the **"Clear Logs"** button.
-- **Custom Rules & Exclusions:** Any custom user rules, app routing bypasses, and DNS configuration settings you create are stored strictly on-device.
-- **License & Trial Status:** Your trial installation timestamp and one-time Lifetime purchase entitlement are stored locally on your device.
+Certain operational settings and diagnostics are stored **strictly within your device's local application sandbox** (and shared App Group on iOS):
+- **Query Logs & 7-Day Privacy Insights:** Recent DNS queries (domain name, query type, timestamp, matched rule, and blocked/allowed status) and aggregated 7-day blocked counts are saved exclusively to local storage. You can purge your logs anytime with a single tap using **"Clear Logs"**.
+- **Category Blockers, Bedtime Schedules & Custom Rules:** Your category filters, downtime schedules, custom AdBlock rules, app bypass selections, and DNS resolver preferences are stored strictly on-device.
+- **JSON Configuration Backups:** Exporting or restoring a JSON configuration backup happens strictly at your request between local storage/clipboard and remains entirely under your control.
+- **License & Trial Status:** Your trial installation timestamp and one-time Lifetime Pro purchase entitlement are stored locally on your device.
 
 ---
 
@@ -63,34 +71,33 @@ For the app to function properly, certain data is stored **strictly within your 
 
 ## 6. Upstream DNS Resolvers & Third-Party Non-Affiliation Disclaimer
 
-AegisGuard functions as an on-device network security and privacy configuration tool. When active, encrypted DNS-over-HTTPS (DoH) requests are resolved by independent, publicly accessible Anycast DNS networks:
-- **Default Protection (Aegis Shield Profile):** Powered by publicly accessible Anycast privacy resolvers (including AdGuard Public DNS infrastructure) to provide automated ad-blocking, tracker prevention, and family protection. These resolvers operate under strict zero-knowledge principles and do not log user IP addresses or browsing histories.
-- **Basic Mode:** Routes through Cloudflare Public DNS (`1.1.1.1`), an independent high-speed encrypted resolver with public no-logs commitments.
-- **Custom Resolvers:** Users retain full freedom to configure any custom DoH, DoT, or DNSCrypt server of their choice.
+AegisGuard configures encrypted DNS routing via independent public Anycast resolvers or optional user-supplied Private DNS endpoints:
+- **Built-in Presets:** Aegis Secure DNS, Aegis Family Shield, Cloudflare DNS (`1.1.1.1` / `1.1.1.3`), Google Public DNS (`8.8.8.8`), and Quad9 (`9.9.9.9`).
+- **Custom Private DNS & `sdns://` Stamps:** Users may enter personal **NextDNS**, **Control D**, **AdGuard Private DNS**, custom DoH URLs, or `sdns://` stamps. When you configure a personal account-linked resolver (e.g. your own NextDNS or Control D ID), encrypted DNS lookups are handled by that provider according to their privacy policy.
 
 ### Non-Affiliation & Trademark Notice
-AegisGuard: Ad & DNS Blocker and Fajostech are independent entities. AegisGuard: Ad & DNS Blocker is **not affiliated with, associated with, authorized by, sponsored by, or endorsed by** AdGuard, Cloudflare, Quad9, Google, Apple, or any other third-party DNS or network provider. All trademarks, registered trademarks, service marks, and company names mentioned are the property of their respective owners. Mention of third-party public resolvers is strictly for technical identification and factual description under nominative fair use.
+AegisGuard: Ad & DNS Blocker and Fajostech are independent entities. AegisGuard: Ad & DNS Blocker is **not affiliated with, associated with, authorized by, sponsored by, or endorsed by** AdGuard, Cloudflare, Quad9, NextDNS, Control D, Google, Apple, or any other third-party DNS or network provider. All trademarks, registered trademarks, service marks, and company names mentioned are the property of their respective owners. Mention of third-party services is strictly for technical identification under nominative fair use.
 
 ### Upstream Service Availability Disclaimer
-Fajostech does not operate or control the physical servers of third-party public DNS networks. We are not liable for any downtime, service latency, regional blocking, or changes made by independent upstream operators.
+Fajostech does not operate or control the physical servers of third-party public or private DNS networks. We are not liable for any downtime, service latency, regional blocking, or changes made by independent upstream operators.
 
 ---
 
-## 7. Children's Privacy (COPPA & GDPR-K Compliance)
+## 7. Children's Privacy & Family Protection (COPPA & GDPR-K)
 
-AegisGuard: Ad & DNS Blocker does not knowingly collect or solicit personal information from children under the age of 13. Furthermore, AegisGuard includes an optional **Family Shield Mode** designed specifically to help parents protect children by blocking adult content, explicit websites, and enforcing safe search across search engines.
+AegisGuard: Ad & DNS Blocker does not knowingly collect or solicit personal information from children under the age of 13. Furthermore, AegisGuard includes optional **Family Shield Mode**, **SafeSearch Enforcement**, **Biometric Parental Lock**, **Category Blockers**, and **Bedtime Schedules** operating strictly on-device to help parents create a safer environment for families.
 
 ---
 
 ## 8. Security of Your Data
 
-Because AegisGuard stores user settings and local logs exclusively inside the operating system's isolated sandbox, your data is protected by the device's hardware encryption, biometrics (Face ID / Touch ID / Fingerprint), and OS access controls.
+Because AegisGuard stores user settings, backups, and local logs exclusively inside the operating system's isolated sandbox, your data is protected by the device's hardware encryption, biometrics (Face ID / Touch ID / Fingerprint), and OS access controls.
 
 ---
 
 ## 9. Changes to This Privacy Policy
 
-We may update our Privacy Policy periodically to reflect technological or regulatory changes. Any changes will be posted within the application and in this repository with an updated effective date.
+We may update our Privacy Policy periodically to reflect new features, technological updates, or regulatory changes. Any changes will be posted within the application and in this repository with an updated effective date.
 
 ---
 

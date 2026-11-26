@@ -1,6 +1,6 @@
 # Terms of Service for AegisGuard: Ad & DNS Blocker
 
-**Effective Date:** November 2, 2026  
+**Effective Date:** November 26, 2026  
 **Developer:** Fajostech / Femi Adeyemi  
 **Application:** AegisGuard: Ad & DNS Blocker (`com.fajostech.aegisguard`)  
 **Contact:** fajostech@gmail.com  
@@ -10,7 +10,7 @@
 
 ## 1. Acceptance of Terms
 
-By downloading, installing, accessing, or using the **AegisGuard: Ad & DNS Blocker** mobile application ("App"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, please do not use the App.
+By downloading, installing, accessing, or using the **AegisGuard: Ad & DNS Blocker** mobile application ("App"), including its native extensions (local DNS packet tunnel, Safari content blocker, offline SMS filter, Home Screen widget, and Siri Shortcuts), you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, please do not use the App.
 
 ---
 
@@ -41,21 +41,21 @@ You agree not to use the App:
 
 ## 5. Third-Party DNS Resolvers & Non-Affiliation Disclaimer
 
-AegisGuard functions as a client-side network management and configuration utility. The App configures on-device encrypted DNS routing (DNS-over-HTTPS / DoH) through independent, publicly accessible Anycast DNS resolvers (including AdGuard Public DNS and Cloudflare DNS) and user-configured custom endpoints.
+AegisGuard functions as a client-side filtering and DNS configuration utility. The App configures on-device local DNS filtering and encrypted DNS routing (DNS-over-HTTPS / DoH) through independent, publicly accessible Anycast resolvers (such as AdGuard Public DNS, Cloudflare, Google, and Quad9) as well as optional user-configured endpoints (such as NextDNS, Control D, AdGuard Private DNS, or `sdns://` stamps).
 
 ### Non-Affiliation & Trademark Notice
-Fajostech and AegisGuard: Ad & DNS Blocker are independent entities. AegisGuard: Ad & DNS Blocker is **not affiliated with, associated with, authorized by, sponsored by, or endorsed by** AdGuard, Cloudflare, Quad9, Google, Apple, or any other third-party DNS provider. All product names, trademarks, logos, and brands are the property of their respective owners. Mention of these services is made strictly for technical identification under nominative fair use.
+Fajostech and AegisGuard: Ad & DNS Blocker are independent entities. AegisGuard: Ad & DNS Blocker is **not affiliated with, associated with, authorized by, sponsored by, or endorsed by** AdGuard, Cloudflare, Quad9, NextDNS, Control D, Google, Apple, or any other third-party DNS provider. All product names, trademarks, logos, and brands are the property of their respective owners. Mention of these services is made strictly for technical identification under nominative fair use.
 
 ### Third-Party Server Availability Disclaimer
-Fajostech does not own, operate, or maintain the physical servers or networks of third-party public DNS providers. We disclaim all liability for any interruption, downtime, latency, regional ISP throttling, or policy modifications made by independent upstream operators.
+Fajostech does not own, operate, or maintain the physical servers or networks of third-party public or private DNS providers. We disclaim all liability for any interruption, downtime, latency, regional ISP throttling, or policy modifications made by independent upstream operators.
 
 ---
 
-## 6. Disclaimer of Warranties
+## 6. Disclaimer of Warranties & Security Tooling
 
 The App is provided on an "AS IS" and "AS AVAILABLE" basis without warranties of any kind, either express or implied, including, but not limited to, implied warranties of merchantability, fitness for a particular purpose, or non-infringement.
-- While AegisGuard employs advanced filtering rules and encrypted DNS, we do not guarantee that 100% of advertisements, trackers, or malware will be blocked, or that legitimate network services will never be inadvertently impacted.
-- Users retain complete control to whitelist, bypass, or customize filter rules and upstream resolvers at any time.
+- **Ad, Category & Phishing Heuristics:** While AegisGuard employs DNS blocklists, Category Blockers, Bedtime Schedules, Safari rules, offline unknown-sender SMS screening (`AegisSmsFilter`), Real-Time Threat Alerts, and the offline Phishing Email & Link Scanner, these are assistive security tools and we do not guarantee that 100% of advertisements, trackers, phishing emails/texts, or malware will be detected or blocked, or that legitimate websites or apps will never be inadvertently affected.
+- **User Control & Backups:** You retain complete control to whitelist, bypass, pause (`Quick Game Mode`), or customize filter rules and resolvers at any time, and you are solely responsible for safeguarding any JSON configuration backups you export.
 
 ---
 

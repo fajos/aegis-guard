@@ -338,8 +338,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
           >
             <Text style={styles.quickToolIcon}>🔍</Text>
             <View style={{ flex: 1 }}>
-              <Text style={styles.quickToolTitle}>Link Scanner</Text>
-              <Text style={styles.quickToolSub}>Check SMS/URL safety</Text>
+              <Text style={styles.quickToolTitle}>Email &amp; Link Scanner</Text>
+              <Text style={styles.quickToolSub}>Inspect phishing &amp; URLs</Text>
             </View>
           </TouchableOpacity>
 

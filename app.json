@@ -91,6 +91,27 @@
                       "group.com.fajostech.aegisguard"
                     ]
                   }
+                },
+                {
+                  "targetName": "AegisPacketTunnel",
+                  "bundleIdentifier": "com.fajostech.aegisguard.PacketTunnel",
+                  "entitlements": {
+                    "com.apple.developer.networking.networkextension": [
+                      "packet-tunnel-provider"
+                    ],
+                    "com.apple.security.application-groups": [
+                      "group.com.fajostech.aegisguard"
+                    ]
+                  }
+                },
+                {
+                  "targetName": "AegisSmsFilter",
+                  "bundleIdentifier": "com.fajostech.aegisguard.SmsFilter",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.com.fajostech.aegisguard"
+                    ]
+                  }
                 }
               ]
             }

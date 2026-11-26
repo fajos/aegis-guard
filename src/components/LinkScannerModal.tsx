@@ -7,102 +7,68 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  ScrollView,
+  Alert,
 } from 'react-native';
 import { AdGuardVpn } from '../native/AdGuardVpnModule';
+import { syncCategoriesAndSafari } from '../utils/backup';
+import { analyzeEmailOrLink, EmailOrLinkScanResult } from '../utils/phishingAnalyzer';
 
 interface LinkScannerModalProps {
   visible: boolean;
   onClose: () => void;
 }
 
-interface ScanVerdict {
-  domain: string;
-  status: 'SAFE' | 'SUSPICIOUS' | 'DANGEROUS';
-  headline: string;
-  reasons: string[];
-}
-
-const RISKY_TLDS = ['.xyz', '.top', '.click', '.tk', '.ml', '.ga', '.cf', '.gq', '.loan', '.zip', '.mov'];
-const PHISHING_KEYWORDS = ['verify-account', 'login-update', 'secure-billing', 'wallet-connect', 'free-nitro', 'claim-prize', 'appleid-support', 'paypal-confirm'];
-
-function extractDomain(rawInput: string): string {
-  let clean = rawInput.trim().toLowerCase();
-  clean = clean.replace(/^https?:\/\//, '');
-  clean = clean.split('/')[0].split('?')[0].split('#')[0];
-  clean = clean.split(':')[0];
-  return clean;
-}
-
 export const LinkScannerModal: React.FC<LinkScannerModalProps> = ({ visible, onClose }) => {
-  const [inputUrl, setInputUrl] = useState('');
+  const [inputText, setInputText] = useState('');
   const [scanning, setScanning] = useState(false);
-  const [verdict, setVerdict] = useState<ScanVerdict | null>(null);
+  const [blocking, setBlocking] = useState(false);
+  const [verdict, setVerdict] = useState<EmailOrLinkScanResult | null>(null);
 
   const handleScan = async () => {
-    const domain = extractDomain(inputUrl);
-    if (!domain || !domain.includes('.')) {
-      setVerdict({
-        domain: inputUrl || '(empty)',
-        status: 'SUSPICIOUS',
-        headline: 'Enter a Valid Domain or URL',
-        reasons: ['Please paste a link or hostname such as https://example.com.'],
-      });
-      return;
-    }
-
     setScanning(true);
     try {
-      const reasons: string[] = [];
-      let status: 'SAFE' | 'SUSPICIOUS' | 'DANGEROUS' = 'SAFE';
-
-      // 1. Check native/engine blocklists
-      const filterRes = await AdGuardVpn.testDomainFilter(domain);
-      if (filterRes?.isBlocked) {
-        status = 'DANGEROUS';
-        reasons.push(`Blocked by AegisGuard filter rule: ${filterRes.matchedRule || domain}`);
-      }
-
-      // 2. Check Punycode IDN homograph attack
-      if (domain.includes('xn--')) {
-        status = 'DANGEROUS';
-        reasons.push('Uses Punycode (xn--) internationalized characters often abused for homograph lookalike phishing.');
-      }
-
-      // 3. Check high-risk phishing keywords
-      if (PHISHING_KEYWORDS.some((kw) => domain.includes(kw))) {
-        status = 'DANGEROUS';
-        reasons.push('Contains deceptive credential-harvesting / brand impersonation pattern.');
-      }
-
-      // 4. Check abusive / risky TLDs
-      if (RISKY_TLDS.some((tld) => domain.endsWith(tld)) && status === 'SAFE') {
-        status = 'SUSPICIOUS';
-        reasons.push('Hosted on a top-level domain heavily correlated with spam and SMS phishing.');
-      }
-
-      // 5. Deep subdomain impersonation check
-      if (domain.split('.').length >= 4 && (domain.includes('paypal') || domain.includes('apple') || domain.includes('bank') || domain.includes('amazon'))) {
-        status = 'DANGEROUS';
-        reasons.push('Uses multi-level subdomain spoofing to mimic a trusted brand.');
-      }
-
-      if (reasons.length === 0) {
-        reasons.push('No adware, malware, homograph, or known phishing signatures detected on this hostname.');
-      }
-
-      setVerdict({
-        domain,
-        status,
-        headline:
-          status === 'DANGEROUS'
-            ? '🚨 Threat / Tracker Detected'
-            : status === 'SUSPICIOUS'
-            ? '⚠️ Caution Advised'
-            : '✅ Link Appears Clean',
-        reasons,
-      });
+      const result = await analyzeEmailOrLink(inputText);
+      setVerdict(result);
     } finally {
       setScanning(false);
+    }
+  };
+
+  const handleBlockThreats = async () => {
+    if (!verdict || verdict.threatDomains.length === 0) return;
+    setBlocking(true);
+    try {
+      const existing = (await AdGuardVpn.getUserRules().catch(() => '')) || '';
+      const existingLines = new Set(
+        existing
+          .split(/\r?\n/)
+          .map((l) => l.trim().toLowerCase())
+          .filter(Boolean)
+      );
+
+      const newRules: string[] = [];
+      for (const dom of verdict.threatDomains) {
+        const rule = `||${dom}^`;
+        if (!existingLines.has(rule.toLowerCase())) {
+          newRules.push(rule);
+        }
+      }
+
+      if (newRules.length > 0) {
+        const merged = [existing.trim(), ...newRules].filter(Boolean).join('\n');
+        await AdGuardVpn.saveUserRules(merged);
+        await syncCategoriesAndSafari();
+      }
+
+      Alert.alert(
+        'Threat Domains Blocked',
+        `${verdict.threatDomains.length} suspicious domain(s) added to your custom filter list (${verdict.threatDomains.join(', ')}).`
+      );
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Could not add threat rules.');
+    } finally {
+      setBlocking(false);
     }
   };
 
@@ -111,52 +77,95 @@ export const LinkScannerModal: React.FC<LinkScannerModalProps> = ({ visible, onC
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
-            <Text style={styles.title}>🔍 Phishing &amp; Link Scanner</Text>
+            <Text style={styles.title}>🔍 Phishing Email &amp; Link Scanner</Text>
             <TouchableOpacity onPress={onClose}>
               <Text style={styles.closeX}>✕</Text>
             </TouchableOpacity>
           </View>
           <Text style={styles.subtitle}>
-            Paste any suspicious SMS, WhatsApp, or email URL to inspect it safely before opening.
+            Paste a suspicious URL, SMS text, or an entire email (including From: header &amp; links). Inspected 100% offline on-device.
           </Text>
 
           <TextInput
             style={styles.input}
-            placeholder="Paste URL (e.g. https://appleid-support.xyz/verify)"
+            placeholder={'Paste URL or suspicious email/SMS:\nFrom: PayPal <alert@paypa1-verify.xyz>\nYour account is suspended, verify at https://...'}
             placeholderTextColor="#9CA3AF"
-            value={inputUrl}
-            onChangeText={setInputUrl}
+            value={inputText}
+            onChangeText={setInputText}
+            multiline
+            numberOfLines={4}
+            textAlignVertical="top"
             autoCapitalize="none"
             autoCorrect={false}
           />
 
-          <TouchableOpacity style={styles.scanBtn} onPress={handleScan} disabled={scanning}>
-            {scanning ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <Text style={styles.scanBtnText}>Analyze Link Safety</Text>
+          <View style={styles.btnRow}>
+            <TouchableOpacity style={styles.scanBtn} onPress={handleScan} disabled={scanning}>
+              {scanning ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <Text style={styles.scanBtnText}>Analyze Email / Link</Text>
+              )}
+            </TouchableOpacity>
+            {inputText.length > 0 && (
+              <TouchableOpacity
+                style={styles.clearBtn}
+                onPress={() => {
+                  setInputText('');
+                  setVerdict(null);
+                }}
+              >
+                <Text style={styles.clearBtnText}>Clear</Text>
+              </TouchableOpacity>
             )}
-          </TouchableOpacity>
+          </View>
 
           {verdict && (
-            <View
-              style={[
-                styles.resultBox,
-                verdict.status === 'DANGEROUS'
-                  ? styles.resDanger
-                  : verdict.status === 'SUSPICIOUS'
-                  ? styles.resWarn
-                  : styles.resSafe,
-              ]}
-            >
-              <Text style={styles.resTitle}>{verdict.headline}</Text>
-              <Text style={styles.resDomain}>{verdict.domain}</Text>
-              {verdict.reasons.map((r, i) => (
-                <Text key={i} style={styles.resReason}>
-                  • {r}
-                </Text>
-              ))}
-            </View>
+            <ScrollView style={styles.verdictScroll} showsVerticalScrollIndicator={false}>
+              <View
+                style={[
+                  styles.resultBox,
+                  verdict.status === 'DANGEROUS'
+                    ? styles.resDanger
+                    : verdict.status === 'SUSPICIOUS'
+                    ? styles.resWarn
+                    : styles.resSafe,
+                ]}
+              >
+                <Text style={styles.resTitle}>{verdict.headline}</Text>
+                {verdict.senderEmail && (
+                  <Text style={styles.metaText}>
+                    Sender: {verdict.senderEmail}
+                  </Text>
+                )}
+                {verdict.extractedDomains.length > 0 && (
+                  <Text style={styles.metaText}>
+                    Domains checked: {verdict.extractedDomains.slice(0, 5).join(', ')}
+                    {verdict.extractedDomains.length > 5 ? ` (+${verdict.extractedDomains.length - 5} more)` : ''}
+                  </Text>
+                )}
+
+                <View style={{ marginTop: 8 }}>
+                  {verdict.reasons.map((r, i) => (
+                    <Text key={i} style={styles.resReason}>
+                      • {r}
+                    </Text>
+                  ))}
+                </View>
+
+                {verdict.threatDomains.length > 0 && (
+                  <TouchableOpacity
+                    style={styles.blockThreatBtn}
+                    onPress={handleBlockThreats}
+                    disabled={blocking}
+                  >
+                    <Text style={styles.blockThreatBtnText}>
+                      {blocking ? 'Blocking...' : `🛡️ Block ${verdict.threatDomains.length} Threat Domain(s) System-Wide`}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </ScrollView>
           )}
         </View>
       </View>
@@ -169,12 +178,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(3, 11, 32, 0.72)',
     justifyContent: 'center',
-    padding: 20,
+    padding: 18,
   },
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 18,
     padding: 18,
+    maxHeight: '86%',
   },
   header: {
     flexDirection: 'row',
@@ -182,9 +192,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   title: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '800',
     color: '#111827',
+    flex: 1,
+    paddingRight: 8,
   },
   closeX: {
     fontSize: 18,
@@ -195,21 +207,28 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     color: '#6B7280',
     marginTop: 6,
-    marginBottom: 14,
+    marginBottom: 12,
     lineHeight: 18,
   },
   input: {
-    height: 44,
+    minHeight: 92,
+    maxHeight: 140,
     backgroundColor: '#F9FAFB',
     borderWidth: 1,
     borderColor: '#D1D5DB',
     borderRadius: 10,
     paddingHorizontal: 12,
+    paddingVertical: 10,
     fontSize: 13,
     color: '#111827',
     marginBottom: 12,
   },
+  btnRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   scanBtn: {
+    flex: 1,
     backgroundColor: '#2563EB',
     borderRadius: 10,
     paddingVertical: 12,
@@ -220,8 +239,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
-  resultBox: {
+  clearBtn: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    justifyContent: 'center',
+  },
+  clearBtnText: {
+    color: '#4B5563',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  verdictScroll: {
     marginTop: 14,
+  },
+  resultBox: {
     borderRadius: 12,
     padding: 14,
     borderWidth: 1,
@@ -239,20 +271,33 @@ const styles = StyleSheet.create({
     borderColor: '#FECACA',
   },
   resTitle: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '800',
     color: '#111827',
   },
-  resDomain: {
+  metaText: {
     fontSize: 12,
-    fontWeight: '700',
-    color: '#4B5563',
-    marginTop: 2,
-    marginBottom: 8,
+    fontWeight: '600',
+    color: '#374151',
+    marginTop: 4,
   },
   resReason: {
-    fontSize: 12,
-    color: '#374151',
+    fontSize: 12.5,
+    color: '#1F2937',
     lineHeight: 18,
+    marginTop: 4,
+  },
+  blockThreatBtn: {
+    marginTop: 12,
+    backgroundColor: '#DC2626',
+    borderRadius: 9,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  blockThreatBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12.5,
+    fontWeight: '700',
   },
 });

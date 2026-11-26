@@ -140,30 +140,44 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
                 <Text style={styles.bulletItem}>• Your real name, physical location, or email address</Text>
 
                 {/* Section 2 */}
-                <Text style={styles.sectionHeading}>2. How Filtering Works On-Device</Text>
+                <Text style={styles.sectionHeading}>2. How On-Device Filtering &amp; Extensions Work</Text>
                 <Text style={styles.paragraph}>
-                  <Text style={styles.bold}>• On iOS:</Text> Aegis Guard sets up a secure, encrypted
-                  DNS-over-HTTPS (DoH) profile using Apple's official NetworkExtension API. Lookups
-                  are encrypted directly to chosen upstream resolvers. We operate no intermediate
-                  proxy that could inspect your traffic.
+                  <Text style={styles.bold}>• On iOS:</Text> Aegis Guard runs an on-device local DNS
+                  Packet Tunnel (<Text style={styles.bold}>AegisPacketTunnel</Text> / NEPacketTunnelProvider)
+                  that evaluates Category Blockers, Bedtime Schedules, custom user rules, SafeSearch, and
+                  phishing signatures directly on your processor before forwarding allowed queries via
+                  encrypted DNS-over-HTTPS (DoH). Optional iOS extensions include{' '}
+                  <Text style={styles.bold}>AegisSafariBlocker</Text> (Safari ad/cosmetic rules),{' '}
+                  <Text style={styles.bold}>AegisSmsFilter</Text> (offline unknown-sender SMS phishing
+                  screening via Apple's IdentityLookup framework), <Text style={styles.bold}>AegisWidget</Text>,
+                  and Siri Shortcuts (AppIntents). Extensions share settings solely through the isolated
+                  on-device App Group sandbox (group.com.fajostech.aegisguard).
                 </Text>
                 <Text style={styles.paragraph}>
-                  <Text style={styles.bold}>• On Android:</Text> A local loopback TUN interface runs
-                  directly on your device. Filtering occurs 100% on-processor with zero data exiting
-                  to third-party inspection servers.
+                  <Text style={styles.bold}>• On Android:</Text> A local loopback VpnService interface
+                  (10.0.0.2) enforces per-app split-tunneling, category blocking, custom rules, and
+                  encrypted DNS filtering 100% on-processor with zero data exiting to third-party proxy servers.
+                </Text>
+                <Text style={styles.paragraph}>
+                  <Text style={styles.bold}>• Phishing Scanner &amp; Threat Alerts:</Text> Any URLs,
+                  sender headers, emails, or SMS texts you paste into the Email &amp; Link Scanner — as well
+                  as unknown SMS messages screened by AegisSmsFilter — are analyzed strictly in volatile
+                  on-device memory and are never uploaded or stored remotely. Local phishing alert
+                  notifications stay completely on-device.
                 </Text>
 
                 {/* Section 3 */}
-                <Text style={styles.sectionHeading}>3. Local Device Storage Only</Text>
+                <Text style={styles.sectionHeading}>3. Local Device Storage &amp; Backups Only</Text>
                 <Text style={styles.paragraph}>
-                  Recent query logs, custom AdBlock rules, app bypass selections, and your 3-day trial
-                  status are stored strictly in your device's isolated local app sandbox. This data
-                  never leaves your physical device and can be erased anytime using the "Clear Logs"
-                  feature.
+                  Recent query logs, 7-day Privacy Insights trends, custom AdBlock rules, Category
+                  Blocker selections, Bedtime Schedules, app bypass preferences, and your 3-day trial
+                  status are stored strictly in your device's isolated local app sandbox. JSON Configuration
+                  Backups are generated and imported locally at your explicit direction — we never sync your
+                  backups or logs to remote servers, and you can clear logs anytime with "Clear Logs".
                 </Text>
 
                 {/* Section 4 */}
-                <Text style={styles.sectionHeading}>4. In-App Purchases & Payments</Text>
+                <Text style={styles.sectionHeading}>4. In-App Purchases &amp; Payments</Text>
                 <Text style={styles.paragraph}>
                   The optional Lifetime Pro license is handled entirely by Apple App Store (StoreKit)
                   or Google Play Billing. We never receive, process, or store your credit card or
@@ -171,21 +185,25 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
                 </Text>
 
                 {/* Section 5 */}
-                <Text style={styles.sectionHeading}>5. Children & Family Protection</Text>
+                <Text style={styles.sectionHeading}>5. Children, Category Blockers &amp; Family Protection</Text>
                 <Text style={styles.paragraph}>
                   Aegis Guard complies with COPPA and GDPR-K. We do not knowingly collect information
-                  from children under 13. Our optional Family Shield mode blocks adult and explicit
-                  content to provide a safer browsing environment for families.
+                  from children under 13. Optional Family Shield mode, SafeSearch enforcement, Biometric
+                  Parental Lock, Category Blockers (Social, Gambling, Gaming, Dating, Crypto), and Bedtime
+                  Focus Schedules operate exclusively on-device to provide safer family browsing.
                 </Text>
 
                 {/* Section 6 */}
-                <Text style={styles.sectionHeading}>6. Upstream DNS & Non-Affiliation Notice</Text>
+                <Text style={styles.sectionHeading}>6. Upstream DNS &amp; Non-Affiliation Notice</Text>
                 <Text style={styles.paragraph}>
-                  AegisGuard configures on-device encrypted DNS (DoH) via independent, publicly accessible
-                  Anycast resolvers. Fajostech and AegisGuard: Ad & DNS Blocker are independent entities and
-                  are <Text style={styles.bold}>not affiliated with, sponsored by, or endorsed by</Text> AdGuard,
-                  Cloudflare, Quad9, Google, or Apple. All product names and trademarks belong to their respective
-                  owners and are referenced strictly for factual identification under nominative fair use.
+                  AegisGuard configures on-device encrypted DNS (DoH) via independent public resolvers or
+                  user-supplied Private DNS profiles (such as NextDNS, Control D, AdGuard Private DNS, or
+                  custom sdns:// stamps). If you enter a personal resolver ID, DNS queries resolve directly
+                  with that provider under their privacy policy. Fajostech and AegisGuard: Ad &amp; DNS
+                  Blocker are independent entities and are{' '}
+                  <Text style={styles.bold}>not affiliated with, sponsored by, or endorsed by</Text> AdGuard,
+                  Cloudflare, Quad9, NextDNS, Control D, Google, or Apple. All trademarks belong to their
+                  respective owners and are referenced strictly for technical identification.
                 </Text>
 
                 {/* Section 7 */}
@@ -234,22 +252,26 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
                 </Text>
 
                 {/* Section 4 */}
-                <Text style={styles.sectionHeading}>4. Third-Party Resolvers & Upstream Availability</Text>
+                <Text style={styles.sectionHeading}>4. Third-Party Resolvers &amp; Upstream Availability</Text>
                 <Text style={styles.paragraph}>
-                  AegisGuard operates as a client-side configuration tool. Fajostech does
-                  not own, operate, or maintain physical third-party DNS servers. We disclaim all liability
-                  for any upstream service interruptions, latency, or modifications made by independent
-                  resolver operators. AegisGuard is not affiliated with or endorsed by AdGuard, Cloudflare,
-                  or Quad9.
+                  AegisGuard operates as a client-side filtering and DNS configuration tool (including local
+                  Category Blockers, Bedtime Schedules, Safari Content Blocker, offline SMS filtering, Widgets,
+                  Siri Shortcuts, and custom sdns:// or NextDNS/Control D profiles). Fajostech does not own,
+                  operate, or maintain physical third-party DNS servers and disclaims liability for upstream
+                  interruptions, latency, or policy changes by independent resolver operators. AegisGuard is
+                  not affiliated with or endorsed by AdGuard, Cloudflare, Quad9, NextDNS, Control D, Google, or Apple.
                 </Text>
 
                 {/* Section 5 */}
-                <Text style={styles.sectionHeading}>5. Disclaimer of Warranties & Limitation of Liability</Text>
+                <Text style={styles.sectionHeading}>5. Disclaimer of Warranties &amp; Security Tooling</Text>
                 <Text style={styles.paragraph}>
-                  AegisGuard is provided "as is" and "as available". While we maintain advanced
-                  filtering and DNS protection, we do not guarantee that every advertisement or
-                  tracker will be blocked. To the maximum extent permitted by law, Fajostech
-                  shall not be liable for any indirect, incidental, or consequential damages.
+                  AegisGuard is provided "as is" and "as available". While we maintain advanced DNS,
+                  Safari, SMS scam, category, and phishing inspection rules, security heuristics and DNS
+                  blocking are assistive tools and cannot guarantee that every advertisement, tracker,
+                  or phishing message/email will be detected or blocked. You remain responsible for
+                  verifying sensitive communications and safeguarding any exported JSON configuration backups.
+                  To the maximum extent permitted by law, Fajostech shall not be liable for indirect,
+                  incidental, or consequential damages.
                 </Text>
 
                 {/* Section 6 */}

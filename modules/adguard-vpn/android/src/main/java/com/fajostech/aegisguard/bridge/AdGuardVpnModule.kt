@@ -81,6 +81,9 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
             if (savedCats != null && savedCats.isNotEmpty()) {
                 LocalVpnService.filterEngine.setCategoryDomains(savedCats.toList())
             }
+
+            // Restore Real-Time Threat Alerts preference
+            LocalVpnService.threatAlertsEnabled = dnsPrefs.getBoolean("threat_alerts_enabled", true)
         } catch (e: Exception) {}
 
         // Buffer and batch query logs to prevent flooding the React Native bridge
@@ -421,6 +424,18 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
     @ReactMethod
     fun isSafeSearchEnabled(promise: Promise) {
         promise.resolve(LocalVpnService.filterEngine.enableSafeSearch)
+    }
+
+    @ReactMethod
+    fun setThreatAlertsEnabled(enabled: Boolean, promise: Promise) {
+        LocalVpnService.threatAlertsEnabled = enabled
+        dnsPrefs.edit().putBoolean("threat_alerts_enabled", enabled).apply()
+        promise.resolve(true)
+    }
+
+    @ReactMethod
+    fun isThreatAlertsEnabled(promise: Promise) {
+        promise.resolve(LocalVpnService.threatAlertsEnabled)
     }
 
     @ReactMethod

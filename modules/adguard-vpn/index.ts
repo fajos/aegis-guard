@@ -95,6 +95,10 @@ export interface AdGuardVpnInterface {
   reloadSafariBlocker?(rulesJson: string): Promise<boolean>;
   updateWidgetStats?(stats: Record<string, any>): Promise<boolean>;
   setCategoryDomains?(domains: string[]): Promise<boolean>;
+  setBedtimeSchedule?(enabled: boolean, startHour: number, endHour: number, domains: string[]): Promise<boolean>;
+  setThreatAlertsEnabled?(enabled: boolean): Promise<boolean>;
+  isThreatAlertsEnabled?(): Promise<boolean>;
+  requestNotificationPermission?(): Promise<boolean>;
 }
 
 export const GAMING_REWARDED_AD_DOMAINS: string[] = [
@@ -568,6 +572,7 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
   private safeSearch = false;
   private parentalLock = false;
   private familyProtection = false;
+  private threatAlerts = true;
   private gameAdsBypass = false;
   private isPremium = true;
   private categoryDomains: string[] = [];
@@ -1105,6 +1110,21 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
     return true;
   }
 
+  async setBedtimeSchedule(
+    enabled: boolean,
+    startHour: number,
+    endHour: number,
+    domains: string[]
+  ): Promise<boolean> {
+    const clean = domains.map((d) => d.trim().toLowerCase()).filter(Boolean);
+    if (resolvedNativeModule && typeof resolvedNativeModule.setBedtimeSchedule === 'function') {
+      try {
+        await resolvedNativeModule.setBedtimeSchedule(enabled, startHour, endHour, clean);
+      } catch {}
+    }
+    return true;
+  }
+
   async isDnsProfileInstalled(): Promise<boolean> {
     if (resolvedNativeModule && typeof resolvedNativeModule.isDnsProfileInstalled === 'function') {
       try {
@@ -1324,6 +1344,34 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
     return this.parentalLock;
   }
 
+  async setThreatAlertsEnabled(enabled: boolean): Promise<boolean> {
+    this.threatAlerts = enabled;
+    if (resolvedNativeModule && typeof resolvedNativeModule.setThreatAlertsEnabled === 'function') {
+      try {
+        await resolvedNativeModule.setThreatAlertsEnabled(enabled);
+      } catch {}
+    }
+    return true;
+  }
+
+  async isThreatAlertsEnabled(): Promise<boolean> {
+    if (resolvedNativeModule && typeof resolvedNativeModule.isThreatAlertsEnabled === 'function') {
+      try {
+        return await resolvedNativeModule.isThreatAlertsEnabled();
+      } catch {}
+    }
+    return this.threatAlerts;
+  }
+
+  async requestNotificationPermission(): Promise<boolean> {
+    if (resolvedNativeModule && typeof resolvedNativeModule.requestNotificationPermission === 'function') {
+      try {
+        return await resolvedNativeModule.requestNotificationPermission();
+      } catch {}
+    }
+    return true;
+  }
+
   async setFamilyProtectionEnabled(enabled: boolean): Promise<boolean> {
     await this.ensureInitialized();
     this.familyProtection = enabled;
@@ -1454,6 +1502,25 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
           rewriteIp: '0.0.0.0',
         };
       }
+    }
+
+    // 3c. Phishing & Homograph Signatures
+    const phishingTokens = [
+      'verify-account', 'login-update', 'secure-billing', 'wallet-connect',
+      'free-nitro', 'claim-prize', 'appleid-support', 'paypal-confirm',
+      'account-suspended', 'seed-phrase', 'recovery-wallet', 'signin-verify',
+    ];
+    if (
+      (d.includes('xn--') && ['paypal', 'apple', 'google', 'microsoft', 'amazon', 'bank', 'wallet', 'login'].some((b) => d.includes(b))) ||
+      phishingTokens.some((tok) => d.includes(tok))
+    ) {
+      return {
+        domain,
+        isBlocked: true,
+        matchedRule: `||${domain}^$phishing-shield`,
+        isRewrite: false,
+        rewriteIp: '0.0.0.0',
+      };
     }
 
     // 4. Block List vectors & Known Ad/Tracker Domains
