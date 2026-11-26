@@ -11,6 +11,8 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AdGuardVpn } from '../native/AdGuardVpnModule';
 import { authenticateWithBiometrics } from '../utils/security';
+import { useLicense } from '../hooks/useLicense';
+import { LifetimePaywallModal } from './LifetimePaywallModal';
 import {
   BedtimeSchedule,
   CATEGORY_DEFINITIONS,
@@ -22,6 +24,9 @@ import {
 import { CATEGORY_STORAGE_KEYS, syncCategoriesAndSafari } from '../utils/backup';
 
 export const FamilySecuritySection: React.FC = () => {
+  const { trialExpired } = useLicense();
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const [paywallReason, setPaywallReason] = useState<string | undefined>(undefined);
   const [familyProtectionEnabled, setFamilyProtectionEnabled] = useState(false);
   const [safeSearchEnabled, setSafeSearchEnabled] = useState(false);
   const [parentalLockEnabled, setParentalLockEnabled] = useState(false);
@@ -35,6 +40,15 @@ export const FamilySecuritySection: React.FC = () => {
   });
   const [schedule, setSchedule] = useState<BedtimeSchedule>(DEFAULT_SCHEDULE);
   const [isLoading, setIsLoading] = useState(true);
+
+  const requirePro = (reason: string): boolean => {
+    if (trialExpired) {
+      setPaywallReason(reason);
+      setPaywallVisible(true);
+      return false;
+    }
+    return true;
+  };
 
   const syncEnforcement = useCallback(
     async (cats: Record<CategoryId, boolean>, sched: BedtimeSchedule) => {
@@ -89,6 +103,7 @@ export const FamilySecuritySection: React.FC = () => {
   }, [syncEnforcement]);
 
   const handleToggleFamilyProtection = async (newValue: boolean) => {
+    if (!requirePro('Adult Content Blocking (Family Shield) is a Lifetime Pro feature.')) return;
     // If turning OFF, strictly require biometric authentication
     if (!newValue) {
       const ok = await authenticateWithBiometrics(
@@ -114,6 +129,7 @@ export const FamilySecuritySection: React.FC = () => {
   };
 
   const handleToggleSafeSearch = async (newValue: boolean) => {
+    if (!requirePro('SafeSearch Enforcement is a Lifetime Pro feature.')) return;
     if (parentalLockEnabled) {
       const ok = await authenticateWithBiometrics('Verify identity to change SafeSearch settings');
       if (!ok) return;
@@ -134,6 +150,7 @@ export const FamilySecuritySection: React.FC = () => {
   };
 
   const handleToggleParentalLock = async (newValue: boolean) => {
+    if (!requirePro('Biometric Parental Lock is a Lifetime Pro feature.')) return;
     const ok = await authenticateWithBiometrics(
       newValue
         ? 'Scan Face ID or Fingerprint to enable Parental Lock'
@@ -156,6 +173,7 @@ export const FamilySecuritySection: React.FC = () => {
   };
 
   const handleToggleThreatAlerts = async (newValue: boolean) => {
+    if (!requirePro('Real-Time Phishing & Threat Alerts is a Lifetime Pro feature.')) return;
     if (!newValue && parentalLockEnabled) {
       const ok = await authenticateWithBiometrics('Verify identity to disable Phishing Alerts');
       if (!ok) return;
@@ -171,6 +189,7 @@ export const FamilySecuritySection: React.FC = () => {
   };
 
   const handleToggleCategory = async (categoryId: CategoryId) => {
+    if (!requirePro('Category Blockers (Social, Gambling, Gaming, Dating, Crypto) require Lifetime Pro.')) return;
     const nextVal = !enabledCategories[categoryId];
     if (!nextVal && parentalLockEnabled) {
       const ok = await authenticateWithBiometrics('Authenticate to unblock category filter');
@@ -183,6 +202,7 @@ export const FamilySecuritySection: React.FC = () => {
   };
 
   const updateSchedule = async (nextSched: BedtimeSchedule, requireAuth: boolean) => {
+    if (!requirePro('Bedtime & Focus Schedules require Lifetime Pro.')) return;
     if (requireAuth && parentalLockEnabled) {
       const ok = await authenticateWithBiometrics('Authenticate to modify Bedtime Schedule');
       if (!ok) return;
@@ -197,8 +217,21 @@ export const FamilySecuritySection: React.FC = () => {
   }
 
   return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.container}>
-      {/* Block Adult Content Card (Hero) */}
+    <>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.container}>
+        {trialExpired && (
+          <TouchableOpacity
+            style={styles.proLockedBanner}
+            activeOpacity={0.85}
+            onPress={() => requirePro('Unlock Family Shield, Category Blockers, Bedtime Schedules, and Real-Time Threat Alerts forever.')}
+          >
+            <Text style={styles.proLockedTitle}>🔒 Family &amp; Security Controls Locked</Text>
+            <Text style={styles.proLockedDesc}>
+              Your 7-day free trial ended. Unlock Lifetime Pro to activate Family Shield, Category Blockers, Bedtime Schedules, SafeSearch, and Threat Alerts.
+            </Text>
+          </TouchableOpacity>
+        )}
+        {/* Block Adult Content Card (Hero) */}
       <View style={[styles.card, familyProtectionEnabled ? styles.cardFamilyActive : null]}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardIcon}>🔞</Text>
@@ -437,6 +470,13 @@ export const FamilySecuritySection: React.FC = () => {
         </Text>
       </View>
     </ScrollView>
+
+      <LifetimePaywallModal
+        visible={paywallVisible}
+        onClose={() => setPaywallVisible(false)}
+        reason={paywallReason}
+      />
+    </>
   );
 };
 
@@ -618,5 +658,24 @@ const styles = StyleSheet.create({
   schedChipTextActive: {
     color: '#1D4ED8',
     fontWeight: '700',
+  },
+  proLockedBanner: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 14,
+  },
+  proLockedTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#991B1B',
+  },
+  proLockedDesc: {
+    fontSize: 12,
+    color: '#B91C1C',
+    marginTop: 3,
+    lineHeight: 17,
   },
 });

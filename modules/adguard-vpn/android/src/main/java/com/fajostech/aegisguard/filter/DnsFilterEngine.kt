@@ -17,6 +17,9 @@ class DnsFilterEngine(
 ) {
     private val matcher = RuleMatcher()
 
+    @Volatile
+    var isPremium: Boolean = true
+
     var enableSafeSearch: Boolean = false
     var enableFamilyFilter: Boolean = false
 
@@ -80,6 +83,15 @@ class DnsFilterEngine(
      */
     fun evaluate(domain: String, queryType: Int = 1): EvaluationResult {
         totalQueries.incrementAndGet()
+
+        // Basic Mode (Trial Expired & Not Purchased): allow DNS privacy passthrough only
+        if (!isPremium) {
+            allowedQueries.incrementAndGet()
+            return EvaluationResult(
+                isBlocked = false,
+                domain = domain
+            )
+        }
 
         // 1. IPv6 blocking check (AAAA = 28)
         if (blockIpv6 && queryType == 28) {

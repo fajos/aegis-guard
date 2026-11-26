@@ -329,8 +329,12 @@ import WidgetKit
 
 class PacketTunnelProvider: NEPacketTunnelProvider {
     private let appGroupId = "${APP_GROUP}"
-    private let tunnelAddress = "10.0.0.2"
-    private let virtualDnsAddress = "10.0.0.1"
+    // Keep tunnelRemoteAddress distinct from virtualDnsAddress so iOS does not exclude DNS from utun
+    private let tunnelRemoteAddress = "198.18.0.1"
+    private let tunnelAddress = "198.18.0.2"
+    private let virtualDnsAddress = "198.18.53.53"
+    private let tunnelAddress6 = "fd00:198:18::2"
+    private let virtualDnsAddress6 = "fd00:198:18::53"
 
     private let stateQueue = DispatchQueue(label: "com.fajostech.aegisguard.tunnel.state")
     private let statsQueue = DispatchQueue(label: "com.fajostech.aegisguard.tunnel.stats")
@@ -454,18 +458,25 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         reloadConfigFromAppGroup()
         loadInitialStats()
 
-        let networkSettings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: virtualDnsAddress)
+        let networkSettings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: tunnelRemoteAddress)
         networkSettings.mtu = NSNumber(value: 1500)
 
-        let ipv4Settings = NEIPv4Settings(addresses: [tunnelAddress], subnetMasks: ["255.255.255.0"])
-        // Route ONLY the virtual DNS server IP into the tunnel so normal app/web traffic bypasses userspace
+        let ipv4Settings = NEIPv4Settings(addresses: [tunnelAddress], subnetMasks: ["255.255.255.255"])
+        // Route ONLY the virtual DNS IP (distinct from tunnelRemoteAddress) so normal traffic bypasses userspace
         ipv4Settings.includedRoutes = [
             NEIPv4Route(destinationAddress: virtualDnsAddress, subnetMask: "255.255.255.255")
         ]
         networkSettings.ipv4Settings = ipv4Settings
 
-        let dnsSettings = NEDNSSettings(servers: [virtualDnsAddress])
+        let ipv6Settings = NEIPv6Settings(addresses: [tunnelAddress6], networkPrefixLengths: [128])
+        ipv6Settings.includedRoutes = [
+            NEIPv6Route(destinationAddress: virtualDnsAddress6, networkPrefixLength: 128)
+        ]
+        networkSettings.ipv6Settings = ipv6Settings
+
+        let dnsSettings = NEDNSSettings(servers: [virtualDnsAddress, virtualDnsAddress6])
         dnsSettings.matchDomains = [""]
+        dnsSettings.matchDomainsNoSearch = true
         networkSettings.dnsSettings = dnsSettings
 
         setTunnelNetworkSettings(networkSettings) { [weak self] error in
@@ -528,10 +539,16 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             }
 
             let servers = defaults.stringArray(forKey: "aegis_selected_dns_servers") ?? []
-            let resolved = self.resolveUpstream(servers: servers, isFamily: self.familyProtectionEnabled)
-            self.upstreamDohUrl = resolved.dohUrl
-            self.upstreamBootstrapIp = resolved.bootstrapIp
-            self.upstreamProfileName = resolved.description
+            if !self.isPremium {
+                self.upstreamDohUrl = "https://cloudflare-dns.com/dns-query"
+                self.upstreamBootstrapIp = "1.1.1.1"
+                self.upstreamProfileName = "Aegis Guard Basic Privacy"
+            } else {
+                let resolved = self.resolveUpstream(servers: servers, isFamily: self.familyProtectionEnabled)
+                self.upstreamDohUrl = resolved.dohUrl
+                self.upstreamBootstrapIp = resolved.bootstrapIp
+                self.upstreamProfileName = resolved.description
+            }
 
             let cats = defaults.stringArray(forKey: "aegis_category_domains") ?? []
             self.categoryDomains = Set(cats.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty })
@@ -629,9 +646,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
             for i in 0..<packets.count {
                 let packet = packets[i]
-                let proto = protocols[i]
-                if proto.intValue == AF_INET {
+                let proto = protocols[i].intValue
+                if proto == Int(AF_INET) {
                     self.handleIPv4Packet(packet)
+                } else if proto == Int(AF_INET6) {
+                    self.handleIPv6Packet(packet)
                 }
             }
 
@@ -661,20 +680,56 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         guard bytes.count >= dnsOffset + 12 else { return }
         let dnsQuery = Data(bytes[dnsOffset...])
 
+        processDnsQuery(dnsQuery: dnsQuery) { responseDns in
+            let reply = self.buildIPv4UdpPacket(srcIP: dstIP, dstIP: srcIP, srcPort: dstPort, dstPort: srcPort, payload: responseDns)
+            self.packetFlow.writePackets([reply], withProtocols: [NSNumber(value: AF_INET)])
+        }
+    }
+
+    private func handleIPv6Packet(_ packet: Data) {
+        let bytes = [UInt8](packet)
+        guard bytes.count >= 48 else { return }
+        let version = bytes[0] >> 4
+        guard version == 6 else { return }
+        guard bytes[6] == 17 else { return } // UDP only (no extension headers)
+
+        let srcIP = Array(bytes[8..<24])
+        let dstIP = Array(bytes[24..<40])
+        let srcPort = (UInt16(bytes[40]) << 8) | UInt16(bytes[41])
+        let dstPort = (UInt16(bytes[42]) << 8) | UInt16(bytes[43])
+
+        guard dstPort == 53 else { return }
+
+        let dnsOffset = 48
+        guard bytes.count >= dnsOffset + 12 else { return }
+        let dnsQuery = Data(bytes[dnsOffset...])
+
+        processDnsQuery(dnsQuery: dnsQuery) { responseDns in
+            let reply = self.buildIPv6UdpPacket(srcIP: dstIP, dstIP: srcIP, srcPort: dstPort, dstPort: srcPort, payload: responseDns)
+            self.packetFlow.writePackets([reply], withProtocols: [NSNumber(value: AF_INET6)])
+        }
+    }
+
+    private func processDnsQuery(dnsQuery: Data, writeReply: @escaping (Data) -> Void) {
         guard let parsed = parseDnsQuestion(dnsQuery) else { return }
         let startTime = CFAbsoluteTimeGetCurrent()
         let qname = parsed.qname.lowercased()
         let qtype = parsed.qtype
         let qtypeStr = qtype == 28 ? "AAAA" : (qtype == 65 ? "HTTPS" : "A")
 
-        // Never block or sinkhole the upstream DoH server's own domain (avoids bootstrap deadlock)
+        // Instant zero-network bootstrap for DoH server hostnames to eliminate UDP-53 / NAT64 deadlocks
         let dohHost = URL(string: stateQueue.sync { upstreamDohUrl })?.host?.lowercased() ?? ""
         if !dohHost.isEmpty && (qname == dohHost || qname.hasSuffix("." + dohHost)) {
+            if let cachedIp = knownDohBootstrapIp(for: qname) {
+                let dnsResp = buildBlockedDnsResponse(query: dnsQuery, qtype: qtype, mode: qtype == 1 ? "REWRITE" : "NODATA", rewriteIp: qtype == 1 ? cachedIp : nil)
+                writeReply(dnsResp)
+                return
+            }
             let bootIp = stateQueue.sync { upstreamBootstrapIp }
             forwardViaDirectUdp(dnsQuery: dnsQuery, upstreamIp: bootIp) { responseData in
-                guard let resp = responseData else { return }
-                let reply = self.buildIPv4UdpPacket(srcIP: dstIP, dstIP: srcIP, srcPort: dstPort, dstPort: srcPort, payload: resp)
-                self.packetFlow.writePackets([reply], withProtocols: [NSNumber(value: AF_INET)])
+                if let resp = responseData {
+                    writeReply(resp)
+                }
             }
             return
         }
@@ -688,8 +743,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 mode: decision.rewriteIp != nil ? "REWRITE" : decision.blockingMode,
                 rewriteIp: decision.rewriteIp
             )
-            let reply = buildIPv4UdpPacket(srcIP: dstIP, dstIP: srcIP, srcPort: dstPort, dstPort: srcPort, payload: dnsResp)
-            packetFlow.writePackets([reply], withProtocols: [NSNumber(value: AF_INET)])
+            writeReply(dnsResp)
             if decision.isThreatAlert {
                 postThreatNotification(domain: qname, rule: decision.rule ?? "Phishing Shield")
             }
@@ -704,8 +758,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             guard let resp = responseData else { return }
 
             let upstreamBlocked = self.didUpstreamBlock(resp)
-            let reply = self.buildIPv4UdpPacket(srcIP: dstIP, dstIP: srcIP, srcPort: dstPort, dstPort: srcPort, payload: resp)
-            self.packetFlow.writePackets([reply], withProtocols: [NSNumber(value: AF_INET)])
+            writeReply(resp)
             self.recordQuery(
                 domain: qname,
                 qtype: qtypeStr,
@@ -715,6 +768,18 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 upstream: snapshot.2
             )
         }
+    }
+
+    private func knownDohBootstrapIp(for host: String) -> String? {
+        if host == "dns.adguard-dns.com" { return "94.140.14.14" }
+        if host == "dns-family.adguard-dns.com" { return "94.140.14.15" }
+        if host == "cloudflare-dns.com" { return "1.1.1.1" }
+        if host == "family.cloudflare-dns.com" { return "1.1.1.3" }
+        if host == "dns.google" { return "8.8.8.8" }
+        if host == "dns.quad9.net" { return "9.9.9.9" }
+        if host.hasSuffix("dns.nextdns.io") { return "45.90.28.0" }
+        if host == "freedns.controld.com" || host.hasSuffix(".controld.com") { return "76.76.2.0" }
+        return nil
     }
 
     // MARK: - Domain Filter Evaluation
@@ -797,7 +862,12 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     private func evaluateDomain(_ domain: String, qtype: UInt16) -> EvalDecision {
         return stateQueue.sync {
-            // 1. SafeSearch enforcement (always applies when enabled)
+            // Basic Mode (Trial Expired & Not Purchased): all Pro filters & Family controls disabled
+            if !isPremium {
+                return EvalDecision(isBlocked: false, countsAsBlock: false, blockingMode: blockingMode, rewriteIp: nil, rule: nil)
+            }
+
+            // 1. SafeSearch enforcement (Pro)
             if safeSearchEnabled || familyProtectionEnabled {
                 if domain.contains("google.") && (domain == "google.com" || domain.hasPrefix("www.google.")) {
                     return EvalDecision(isBlocked: true, countsAsBlock: false, blockingMode: "REWRITE", rewriteIp: "216.239.38.120", rule: "||google.com^$safesearch")
@@ -845,11 +915,6 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             // 6. Family Shield explicit keyword check
             if familyProtectionEnabled && adultKeywords.contains(where: { domain.contains($0) }) {
                 return EvalDecision(isBlocked: true, countsAsBlock: true, blockingMode: blockingMode, rewriteIp: nil, rule: "||\\(domain)^$family-shield")
-            }
-
-            // If trial expired / not unlocked, do not apply built-in ad blocklist
-            if !isPremium {
-                return EvalDecision(isBlocked: false, countsAsBlock: false, blockingMode: blockingMode, rewriteIp: nil, rule: nil)
             }
 
             // 7. Excluded Game / App domains
@@ -938,7 +1003,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             resp.append(contentsOf: [0xC0, 0x0C, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2C, 0x00, 0x04])
             resp.append(contentsOf: aBytes)
             return Data(resp)
-        } else if qtype == 28 && rewriteIp == nil {
+        } else if qtype == 28 && rewriteIp == nil && upperMode != "NODATA" {
             resp.append(0x80) // NOERROR
             resp.append(contentsOf: [0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00])
             resp.append(contentsOf: qBytes[12..<questionEnd])
@@ -1091,6 +1156,45 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         return packet
     }
 
+    private func buildIPv6UdpPacket(srcIP: [UInt8], dstIP: [UInt8], srcPort: UInt16, dstPort: UInt16, payload: Data) -> Data {
+        let udpLen = UInt16(8 + payload.count)
+        var ip6 = [UInt8](repeating: 0, count: 40)
+        ip6[0] = 0x60 // IPv6
+        ip6[4] = UInt8(udpLen >> 8)
+        ip6[5] = UInt8(udpLen & 0xFF)
+        ip6[6] = 17   // UDP
+        ip6[7] = 64   // Hop Limit
+        for idx in 0..<16 {
+            ip6[8 + idx] = srcIP[idx]
+            ip6[24 + idx] = dstIP[idx]
+        }
+
+        var udp = [UInt8](repeating: 0, count: 8)
+        udp[0] = UInt8(srcPort >> 8)
+        udp[1] = UInt8(srcPort & 0xFF)
+        udp[2] = UInt8(dstPort >> 8)
+        udp[3] = UInt8(dstPort & 0xFF)
+        udp[4] = UInt8(udpLen >> 8)
+        udp[5] = UInt8(udpLen & 0xFF)
+
+        var pseudo = [UInt8]()
+        pseudo.append(contentsOf: srcIP)
+        pseudo.append(contentsOf: dstIP)
+        pseudo.append(contentsOf: [0x00, 0x00, udp[4], udp[5]])
+        pseudo.append(contentsOf: [0x00, 0x00, 0x00, 17])
+        pseudo.append(contentsOf: udp)
+        pseudo.append(contentsOf: payload)
+        let udpSum = computeChecksum(pseudo)
+        udp[6] = UInt8(udpSum >> 8)
+        udp[7] = UInt8(udpSum & 0xFF)
+
+        var packet = Data(capacity: 40 + Int(udpLen))
+        packet.append(contentsOf: ip6)
+        packet.append(contentsOf: udp)
+        packet.append(payload)
+        return packet
+    }
+
     private func computeChecksum(_ data: [UInt8]) -> UInt16 {
         var sum: UInt32 = 0
         var idx = 0
@@ -1145,9 +1249,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 self.recentLogs.removeLast(self.recentLogs.count - 200)
             }
 
-            if !self.pendingStatsFlush {
+            if self.totalQueries <= 5 {
+                self.flushStatsSynchronously()
+            } else if !self.pendingStatsFlush {
                 self.pendingStatsFlush = true
-                self.statsQueue.asyncAfter(deadline: .now() + 1.0) {
+                self.statsQueue.asyncAfter(deadline: .now() + 0.5) {
                     self.pendingStatsFlush = false
                     self.flushStatsSynchronously()
                 }

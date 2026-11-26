@@ -14,6 +14,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AdGuardVpn, vpnEventEmitter, QueryLogRecord } from '../native/AdGuardVpnModule';
 import { syncCategoriesAndSafari } from '../utils/backup';
+import { useLicense } from '../hooks/useLicense';
+import { LifetimePaywallModal } from '../components/LifetimePaywallModal';
 
 type FilterTab = 'ALL' | 'BLOCKED' | 'ALLOWED';
 
@@ -73,6 +75,8 @@ const QueryLogCard = React.memo(
 );
 
 export const QueryLogScreen: React.FC<QueryLogScreenProps> = ({ isActive = true }) => {
+  const { trialExpired } = useLicense();
+  const [paywallVisible, setPaywallVisible] = useState(false);
   const [logs, setLogs] = useState<QueryLogRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<FilterTab>('ALL');
@@ -185,6 +189,11 @@ export const QueryLogScreen: React.FC<QueryLogScreenProps> = ({ isActive = true 
   };
 
   const handleBlockDomain = async (domain: string) => {
+    if (trialExpired) {
+      setSelectedEntry(null);
+      setPaywallVisible(true);
+      return;
+    }
     const rule = `||${domain}^`;
     try {
       await AdGuardVpn.addCustomRule(rule);
@@ -198,6 +207,11 @@ export const QueryLogScreen: React.FC<QueryLogScreenProps> = ({ isActive = true 
   };
 
   const handleWhitelistDomain = async (domain: string) => {
+    if (trialExpired) {
+      setSelectedEntry(null);
+      setPaywallVisible(true);
+      return;
+    }
     const rule = `@@||${domain}^`;
     try {
       await AdGuardVpn.addCustomRule(rule);
@@ -370,6 +384,12 @@ export const QueryLogScreen: React.FC<QueryLogScreenProps> = ({ isActive = true 
           </View>
         </View>
       </Modal>
+
+      <LifetimePaywallModal
+        visible={paywallVisible}
+        onClose={() => setPaywallVisible(false)}
+        reason="1-Tap Query Log Domain Blocking & Whitelisting require Lifetime Pro."
+      />
     </SafeAreaView>
   );
 };

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QueryLogRecord } from '../native/AdGuardVpnModule';
 import { CATEGORY_STORAGE_KEYS } from '../utils/backup';
@@ -7,6 +7,8 @@ import { CATEGORY_STORAGE_KEYS } from '../utils/backup';
 interface PrivacyInsightsCardProps {
   recentLogs: QueryLogRecord[];
   blockedQueries: number;
+  locked?: boolean;
+  onUnlockPress?: () => void;
 }
 
 interface TrackerBucket {
@@ -43,6 +45,8 @@ const BUCKET_COLORS: Record<string, string> = {
 export const PrivacyInsightsCard: React.FC<PrivacyInsightsCardProps> = ({
   recentLogs,
   blockedQueries,
+  locked = false,
+  onUnlockPress,
 }) => {
   const [dailyHistory, setDailyHistory] = useState<Record<string, number>>({});
 
@@ -112,7 +116,22 @@ export const PrivacyInsightsCard: React.FC<PrivacyInsightsCardProps> = ({
     <View style={styles.card}>
       <Text style={styles.cardTitle}>📊 Privacy Insights &amp; Trends</Text>
 
-      <Text style={styles.subTitle}>Top Blocked Trackers (Recent Session)</Text>
+      {locked ? (
+        <TouchableOpacity
+          style={{ backgroundColor: '#FEF2F2', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#FECACA' }}
+          onPress={onUnlockPress}
+          activeOpacity={0.85}
+        >
+          <Text style={{ fontSize: 13, fontWeight: '800', color: '#991B1B' }}>
+            🔒 7-Day Privacy Insights Locked
+          </Text>
+          <Text style={{ fontSize: 12, color: '#B91C1C', marginTop: 3 }}>
+            Your 7-day trial ended. Tap to unlock tracker breakdowns &amp; 7-day activity charts with Lifetime Pro.
+          </Text>
+        </TouchableOpacity>
+      ) : (
+        <>
+          <Text style={styles.subTitle}>Top Blocked Trackers (Recent Session)</Text>
       {trackerBreakdown.length === 0 ? (
         <Text style={styles.emptyText}>
           Turn on protection to see real-time tracker breakdown by network.
@@ -163,6 +182,8 @@ export const PrivacyInsightsCard: React.FC<PrivacyInsightsCardProps> = ({
           );
         })}
       </View>
+        </>
+      )}
     </View>
   );
 };

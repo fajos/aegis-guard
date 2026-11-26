@@ -13,6 +13,8 @@ import {
 import { AdGuardVpn } from '../native/AdGuardVpnModule';
 import { syncCategoriesAndSafari } from '../utils/backup';
 import { analyzeEmailOrLink, EmailOrLinkScanResult } from '../utils/phishingAnalyzer';
+import { useLicense } from '../hooks/useLicense';
+import { LifetimePaywallModal } from './LifetimePaywallModal';
 
 interface LinkScannerModalProps {
   visible: boolean;
@@ -20,6 +22,8 @@ interface LinkScannerModalProps {
 }
 
 export const LinkScannerModal: React.FC<LinkScannerModalProps> = ({ visible, onClose }) => {
+  const { trialExpired } = useLicense();
+  const [paywallVisible, setPaywallVisible] = useState(false);
   const [inputText, setInputText] = useState('');
   const [scanning, setScanning] = useState(false);
   const [blocking, setBlocking] = useState(false);
@@ -37,6 +41,10 @@ export const LinkScannerModal: React.FC<LinkScannerModalProps> = ({ visible, onC
 
   const handleBlockThreats = async () => {
     if (!verdict || verdict.threatDomains.length === 0) return;
+    if (trialExpired) {
+      setPaywallVisible(true);
+      return;
+    }
     setBlocking(true);
     try {
       const existing = (await AdGuardVpn.getUserRules().catch(() => '')) || '';
@@ -169,6 +177,12 @@ export const LinkScannerModal: React.FC<LinkScannerModalProps> = ({ visible, onC
           )}
         </View>
       </View>
+
+      <LifetimePaywallModal
+        visible={paywallVisible}
+        onClose={() => setPaywallVisible(false)}
+        reason="1-Tap System-Wide Phishing Domain Blocking requires Lifetime Pro."
+      />
     </Modal>
   );
 };

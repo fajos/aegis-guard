@@ -9,8 +9,8 @@ import { AdGuardVpn } from '../native/AdGuardVpnModule';
 
 export const REVENUECAT_APPLE_API_KEY = 'appl_CGaRZbQRSoQkJGBcWTcVFUAfPyh';
 
-export const TRIAL_DURATION_MS = 3 * 24 * 60 * 60 * 1000; // 3 Days (72 Hours)
-export const CURRENT_BUILD_VERSION = '1.0.15';
+export const TRIAL_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 Days (168 Hours)
+export const CURRENT_BUILD_VERSION = '1.0.16';
 
 const LICENSE_STORAGE_KEYS = {
   INSTALL_TIME: '@aegis_first_install_time',
@@ -45,7 +45,7 @@ let cachedLicenseState: LicenseState = {
   isTrialActive: true,
   isLifetimePurchased: false,
   isPremium: true,
-  daysRemaining: 3,
+  daysRemaining: 7,
   hoursRemaining: 0,
   minutesRemaining: 0,
   totalMsRemaining: TRIAL_DURATION_MS,
@@ -146,7 +146,7 @@ export async function getLicenseState(): Promise<LicenseState> {
     const now = Date.now();
     let installTime: number;
 
-    // Fresh 3-day trial on first install OR when updating to this build (if not already lifetime)
+    // Fresh 7-day trial on first install OR when updating to this build (if not already lifetime)
     if (!installTimeStr || (!isLifetimePurchased && installedBuild !== CURRENT_BUILD_VERSION)) {
       installTime = now;
       await Promise.all([

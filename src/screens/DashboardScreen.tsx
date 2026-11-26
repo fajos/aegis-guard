@@ -31,7 +31,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
   isActive = true,
 }) => {
   const { isRunning, stats, recentLogs, snoozeSeconds, toggleVpn, snoozeVpn, cancelSnooze } = useAdGuardVpn(isActive);
-  const { isPremium, isTrialActive, isLifetimePurchased, trialExpired, daysRemaining, hoursRemaining } = useLicense();
+  const { isPremium, isTrialActive, isLifetimePurchased, trialExpired, daysRemaining, hoursRemaining, priceString } = useLicense();
   const [auditModalVisible, setAuditModalVisible] = useState(false);
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [paywallReason, setPaywallReason] = useState<string | undefined>(undefined);
@@ -131,7 +131,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
               <Text style={styles.trialIcon}>✨</Text>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={styles.trialTitle}>3-Day Free Trial Active</Text>
+                  <Text style={styles.trialTitle}>7-Day Free Trial Active</Text>
                   <View style={styles.trialTimeBadge}>
                     <Text style={styles.trialTimeText}>
                       {daysRemaining > 0 ? `${daysRemaining}d ${hoursRemaining}h left` : `${hoursRemaining}h left`}
@@ -139,19 +139,19 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
                   </View>
                 </View>
                 <Text style={styles.trialSub}>
-                  All apps & GSE IPTV are 100% ad-free during trial.
+                  All Pro ad blocking &amp; Family controls active during trial.
                 </Text>
               </View>
             </View>
             <View style={styles.upgradeButtonSmall}>
-              <Text style={styles.upgradeButtonSmallText}>Lifetime $4.99</Text>
+              <Text style={styles.upgradeButtonSmallText}>Pro {priceString}</Text>
             </View>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
             style={styles.expiredBanner}
             onPress={() => {
-              setPaywallReason('Trial ended: In-app ad blocking paused.');
+              setPaywallReason('7-Day Trial ended: Pro blocking & Family controls paused.');
               setPaywallVisible(true);
             }}
             activeOpacity={0.8}
@@ -160,18 +160,18 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
               <Text style={styles.expiredIcon}>⚠️</Text>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={styles.expiredTitle}>3-Day Trial Ended (Basic Mode)</Text>
+                  <Text style={styles.expiredTitle}>7-Day Trial Ended (Basic Mode)</Text>
                   <View style={styles.expiredBadge}>
-                    <Text style={styles.expiredBadgeText}>ADS ACTIVE</Text>
+                    <Text style={styles.expiredBadgeText}>LIMITED</Text>
                   </View>
                 </View>
                 <Text style={styles.expiredSub}>
-                  In-app ad blocking is paused. Tap to unlock Lifetime Pro.
+                  Ad blocking &amp; Family controls paused. Tap to unlock Lifetime Pro.
                 </Text>
               </View>
             </View>
             <View style={styles.expiredUpgradeButton}>
-              <Text style={styles.expiredUpgradeText}>$4.99</Text>
+              <Text style={styles.expiredUpgradeText}>{priceString}</Text>
             </View>
           </TouchableOpacity>
         )}
@@ -309,6 +309,11 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
         <PrivacyInsightsCard
           recentLogs={recentLogs}
           blockedQueries={stats.blockedQueries}
+          locked={trialExpired}
+          onUnlockPress={() => {
+            setPaywallReason('7-Day Privacy Insights & Tracker Breakdown require Lifetime Pro.');
+            setPaywallVisible(true);
+          }}
         />
 
         {/* Diagnostic Security & Leak Audit Button */}

@@ -37,6 +37,11 @@ export async function syncCategoriesAndSafari(
   overrideSched?: BedtimeSchedule
 ): Promise<void> {
   try {
+    const isPremium =
+      typeof AdGuardVpn.isLicensePremium === 'function'
+        ? await AdGuardVpn.isLicensePremium().catch(() => true)
+        : true;
+
     const [rawCats, rawSched, rulesText] = await Promise.all([
       overrideCats ? Promise.resolve(null) : AsyncStorage.getItem(CATEGORY_STORAGE_KEYS.CATEGORIES),
       overrideSched ? Promise.resolve(null) : AsyncStorage.getItem(CATEGORY_STORAGE_KEYS.SCHEDULE),
@@ -44,17 +49,19 @@ export async function syncCategoriesAndSafari(
     ]);
     const cats = (overrideCats || (rawCats ? JSON.parse(rawCats) : {})) as Record<CategoryId, boolean>;
     const sched = overrideSched || (rawSched ? JSON.parse(rawSched) : DEFAULT_SCHEDULE);
-    const activeDomains = getActiveCategoryDomains(cats, sched);
+    const activeDomains = isPremium ? getActiveCategoryDomains(cats, sched) : [];
 
     if (typeof AdGuardVpn.setCategoryDomains === 'function') {
       await AdGuardVpn.setCategoryDomains(activeDomains).catch(() => {});
     }
     if (typeof AdGuardVpn.setBedtimeSchedule === 'function') {
-      const scheduledDomains = CATEGORY_DEFINITIONS.filter((c) =>
-        (sched.categories || []).includes(c.id)
-      ).flatMap((c) => c.domains);
+      const scheduledDomains = isPremium
+        ? CATEGORY_DEFINITIONS.filter((c) => (sched.categories || []).includes(c.id)).flatMap(
+            (c) => c.domains
+          )
+        : [];
       await AdGuardVpn.setBedtimeSchedule(
-        Boolean(sched.enabled),
+        Boolean(isPremium && sched.enabled),
         sched.startHour,
         sched.endHour,
         scheduledDomains
@@ -63,7 +70,7 @@ export async function syncCategoriesAndSafari(
     if (Platform.OS === 'ios' && typeof AdGuardVpn.reloadSafariBlocker === 'function') {
       const safariRules = buildSafariBlockerRules({
         categoryDomains: activeDomains,
-        userRulesText: rulesText,
+        userRulesText: isPremium ? rulesText : '',
       });
       await AdGuardVpn.reloadSafariBlocker(JSON.stringify(safariRules)).catch(() => {});
     }

@@ -22,9 +22,9 @@ Subject to your compliance with these Terms, Fajostech grants you a limited, non
 
 ## 3. In-App Purchases & Lifetime Pro License
 
-- **Free Trial:** AegisGuard provides a 3-day (72-hour) free trial granting full access to in-app ad blocking and advanced features.
+- **Free Trial:** AegisGuard provides a 7-day (168-hour) free trial granting full access to in-app ad blocking, Family & Category controls, and advanced features.
 - **Lifetime Pro:** Users may purchase a permanent, one-time Lifetime Pro license. This is a non-consumable, one-off payment with zero recurring subscription fees.
-- **Basic Mode:** Following trial expiration without Lifetime Pro, the App defaults to Basic Privacy Mode (encrypted DNS privacy without third-party app ad blocking).
+- **Basic Mode:** Following trial expiration without Lifetime Pro, Pro controls pause and the App reverts to Basic Privacy Mode (free encrypted DNS privacy via Cloudflare, Google, or Quad9 plus manual Phishing Scanner checks).
 - **Payment & Refunds:** All payments, transactions, and refund requests are governed by the terms and policies of the **Apple App Store** or **Google Play Store**. You can restore previously purchased licenses at any time using the "Restore Purchases" button in the App.
 
 ---

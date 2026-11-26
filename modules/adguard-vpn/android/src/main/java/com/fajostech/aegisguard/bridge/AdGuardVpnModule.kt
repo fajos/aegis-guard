@@ -84,6 +84,9 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
 
             // Restore Real-Time Threat Alerts preference
             LocalVpnService.threatAlertsEnabled = dnsPrefs.getBoolean("threat_alerts_enabled", true)
+
+            // Restore Premium / Trial license state
+            LocalVpnService.filterEngine.isPremium = dnsPrefs.getBoolean("is_premium", true)
         } catch (e: Exception) {}
 
         // Buffer and batch query logs to prevent flooding the React Native bridge
@@ -436,6 +439,31 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
     @ReactMethod
     fun isThreatAlertsEnabled(promise: Promise) {
         promise.resolve(LocalVpnService.threatAlertsEnabled)
+    }
+
+    @ReactMethod
+    fun setLicenseState(isPremium: Boolean, promise: Promise) {
+        val prev = LocalVpnService.filterEngine.isPremium
+        LocalVpnService.filterEngine.isPremium = isPremium
+        dnsPrefs.edit().putBoolean("is_premium", isPremium).apply()
+        val effectiveServers = if (isPremium) {
+            dnsPrefs.getStringSet("upstream_servers", null)?.toList()
+                ?: listOf("94.140.14.14", "94.140.15.15")
+        } else {
+            listOf("1.1.1.1", "1.0.0.1")
+        }
+        LocalVpnService.currentConfig = LocalVpnService.currentConfig.copy(
+            upstreamDnsServers = effectiveServers
+        )
+        if (prev != isPremium) {
+            reconfigureVpnIfRunning()
+        }
+        promise.resolve(true)
+    }
+
+    @ReactMethod
+    fun isLicensePremium(promise: Promise) {
+        promise.resolve(LocalVpnService.filterEngine.isPremium)
     }
 
     @ReactMethod

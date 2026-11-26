@@ -15,10 +15,10 @@ export function useLicense() {
     isTrialActive: true,
     isLifetimePurchased: false,
     isPremium: true,
-    daysRemaining: 3,
+    daysRemaining: 7,
     hoursRemaining: 0,
     minutesRemaining: 0,
-    totalMsRemaining: 3 * 24 * 60 * 60 * 1000,
+    totalMsRemaining: 7 * 24 * 60 * 60 * 1000,
     isLoaded: false,
   });
 

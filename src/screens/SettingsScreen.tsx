@@ -16,8 +16,9 @@ interface SettingsScreenProps {
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({ initialSubTab = 'dns' }) => {
   const [activeSubTab, setActiveSubTab] = useState<SettingsSubTab>(initialSubTab);
-  const { isLifetimePurchased, isTrialActive, trialExpired, daysRemaining, hoursRemaining, restorePurchases } = useLicense();
+  const { isLifetimePurchased, isTrialActive, trialExpired, daysRemaining, hoursRemaining, priceString, restorePurchases } = useLicense();
   const [paywallVisible, setPaywallVisible] = useState(false);
+  const [paywallReason, setPaywallReason] = useState<string | undefined>(undefined);
   const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
   const [backupModalVisible, setBackupModalVisible] = useState(false);
   const [legalTab, setLegalTab] = useState<LegalTab>('privacy');
@@ -81,15 +82,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ initialSubTab = 
                 {isLifetimePurchased
                   ? 'Lifetime Pro (Active)'
                   : isTrialActive
-                  ? `3-Day Free Trial (${daysRemaining > 0 ? `${daysRemaining}d ${hoursRemaining}h left` : `${hoursRemaining}h left`})`
+                  ? `7-Day Free Trial (${daysRemaining > 0 ? `${daysRemaining}d ${hoursRemaining}h left` : `${hoursRemaining}h left`})`
                   : 'Basic Mode (Trial Expired)'}
               </Text>
               <Text style={styles.licenseCardSub}>
                 {isLifetimePurchased
-                  ? 'All in-app ad blocking & premium features unlocked forever'
+                  ? 'All in-app ad blocking & Family features unlocked forever'
                   : isTrialActive
-                  ? 'Full in-app ad blocking active. Tap to lock in Lifetime Pro.'
-                  : 'In-app ad blocking paused. Tap to unlock Lifetime Pro.'}
+                  ? 'Full ad blocking & Family controls active. Tap to lock in Lifetime Pro.'
+                  : 'Pro blocking & Family controls paused. Tap to unlock Lifetime Pro.'}
               </Text>
             </View>
           </View>
@@ -107,7 +108,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ initialSubTab = 
                 trialExpired && styles.licenseActionTextExpired,
               ]}
             >
-              {isLifetimePurchased ? 'PRO' : isTrialActive ? 'Upgrade' : '$4.99'}
+              {isLifetimePurchased ? 'PRO' : isTrialActive ? 'Upgrade' : priceString}
             </Text>
           </View>
         </TouchableOpacity>
@@ -191,7 +192,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ initialSubTab = 
         <Text style={styles.legalDot}>•</Text>
         <TouchableOpacity
           style={styles.legalButton}
-          onPress={() => setBackupModalVisible(true)}
+          onPress={() => {
+            if (trialExpired) {
+              setPaywallReason('JSON Configuration Backup & Restore is a Lifetime Pro feature.');
+              setPaywallVisible(true);
+              return;
+            }
+            setBackupModalVisible(true);
+          }}
           activeOpacity={0.7}
         >
           <Text style={styles.legalButtonText}>💾 Backup</Text>
@@ -201,7 +209,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ initialSubTab = 
       {/* Lifetime Pro Paywall Modal */}
       <LifetimePaywallModal
         visible={paywallVisible}
-        onClose={() => setPaywallVisible(false)}
+        onClose={() => {
+          setPaywallVisible(false);
+          setPaywallReason(undefined);
+        }}
+        reason={paywallReason}
       />
 
       {/* In-App Privacy Policy & Terms Modal */}

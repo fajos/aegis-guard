@@ -123,7 +123,7 @@ export const LifetimePaywallModal: React.FC<LifetimePaywallModalProps> = ({
             <View style={styles.priceContainer}>
               <View style={styles.discountBadge}>
                 <Text style={styles.discountBadgeText}>
-                  {isLifetimePurchased ? '✓ PERMANENTLY UNLOCKED' : '🔥 50% OFF LAUNCH SPECIAL'}
+                  {isLifetimePurchased ? '✓ PERMANENTLY UNLOCKED' : '👑 LIFETIME PRO UNLOCK'}
                 </Text>
               </View>
               <View style={styles.priceRow}>
@@ -132,27 +132,44 @@ export const LifetimePaywallModal: React.FC<LifetimePaywallModalProps> = ({
                     Active Pro License
                   </Text>
                 ) : (
-                  <>
-                    <Text style={styles.originalPrice}>$9.99</Text>
-                    <Text style={styles.finalPrice}>{priceString}</Text>
-                  </>
+                  <Text style={styles.finalPrice}>{priceString}</Text>
                 )}
               </View>
               <Text style={styles.pricePeriod}>
                 {isLifetimePurchased
                   ? 'Purchased & Verified via Apple StoreKit'
-                  : 'One-time payment • Lifetime access'}
+                  : 'One-time payment • No subscriptions'}
               </Text>
             </View>
 
             {/* Value Highlights */}
             <View style={styles.featuresList}>
               <View style={styles.featureItem}>
+                <Text style={styles.featureIcon}>👨‍👩‍👧</Text>
+                <View style={styles.featureTextContainer}>
+                  <Text style={styles.featureTitle}>Family Shield, Categories &amp; Schedules</Text>
+                  <Text style={styles.featureDescription}>
+                    Block Adult sites, Social Media, Dating, Gambling &amp; Gaming with Bedtime schedules and Face ID lock.
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.featureItem}>
                 <Text style={styles.featureIcon}>🚫</Text>
                 <View style={styles.featureTextContainer}>
-                  <Text style={styles.featureTitle}>Full In-App Ad Blocking</Text>
+                  <Text style={styles.featureTitle}>System-Wide Ad &amp; Phishing Blocking</Text>
                   <Text style={styles.featureDescription}>
-                    Eliminate video popups & banner ads in GSE Smart IPTV, streaming apps, and games.
+                    Stop in-app ads, Safari promos, and receive instant Real-Time Phishing Alerts across iOS &amp; Android.
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.featureItem}>
+                <Text style={styles.featureIcon}>🔑</Text>
+                <View style={styles.featureTextContainer}>
+                  <Text style={styles.featureTitle}>Private DNS, Custom Rules &amp; Insights</Text>
+                  <Text style={styles.featureDescription}>
+                    Connect NextDNS, Control D, or sdns:// stamps, write custom rules, unlock 7-day trends &amp; JSON backups.
                   </Text>
                 </View>
               </View>
@@ -160,39 +177,9 @@ export const LifetimePaywallModal: React.FC<LifetimePaywallModalProps> = ({
               <View style={styles.featureItem}>
                 <Text style={styles.featureIcon}>🎮</Text>
                 <View style={styles.featureTextContainer}>
-                  <Text style={styles.featureTitle}>Unlimited Game Mode</Text>
+                  <Text style={styles.featureTitle}>Quick Game Mode &amp; Split-Tunneling</Text>
                   <Text style={styles.featureDescription}>
-                    1-tap auto-resuming snooze timer to claim rewarded video ads, gems & coins on demand.
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.featureItem}>
-                <Text style={styles.featureIcon}>📱</Text>
-                <View style={styles.featureTextContainer}>
-                  <Text style={styles.featureTitle}>Split-Tunneling & Game Library</Text>
-                  <Text style={styles.featureDescription}>
-                    One-tap exclusion for 13+ popular mobile games and custom domain routing rules.
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.featureItem}>
-                <Text style={styles.featureIcon}>🛡️</Text>
-                <View style={styles.featureTextContainer}>
-                  <Text style={styles.featureTitle}>Family Shield & Biometric Lock</Text>
-                  <Text style={styles.featureDescription}>
-                    Enforce adult content filtering and Google/Bing SafeSearch with FaceID/TouchID protection.
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.featureItem}>
-                <Text style={styles.featureIcon}>⚡</Text>
-                <View style={styles.featureTextContainer}>
-                  <Text style={styles.featureTitle}>Zero Server Costs</Text>
-                  <Text style={styles.featureDescription}>
-                    Runs 100% on-device inside your phone's sandbox. No middleman subscription fees.
+                    1-tap auto-resuming snooze timer for rewarded ads plus app-level exclusions on Android.
                   </Text>
                 </View>
               </View>
@@ -265,7 +252,7 @@ export const LifetimePaywallModal: React.FC<LifetimePaywallModalProps> = ({
             </View>
 
             <Text style={styles.legalDisclaimer}>
-              Basic Mode provides encrypted DNS privacy against ISP tracking, but disables in-app ad blocking after trial.
+              Basic Mode provides free encrypted DNS privacy (Cloudflare, Google, Quad9) and manual Phishing Scanner checks, while Pro blocking &amp; Family controls lock after the 7-day trial.
             </Text>
           </ScrollView>
         </View>

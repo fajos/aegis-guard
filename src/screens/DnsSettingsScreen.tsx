@@ -11,6 +11,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AdGuardVpn } from '../native/AdGuardVpnModule';
+import { useLicense } from '../hooks/useLicense';
+import { LifetimePaywallModal } from '../components/LifetimePaywallModal';
 import {
   buildPrivateDnsTarget,
   parseDnsStamp,
@@ -65,6 +67,9 @@ interface DnsSettingsScreenProps {
 }
 
 export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested = false }) => {
+  const { trialExpired } = useLicense();
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const [paywallReason, setPaywallReason] = useState<string | undefined>(undefined);
   const [selectedServers, setSelectedServers] = useState<string[]>(cachedServers);
   const [customServer, setCustomServer] = useState('');
   const [blockingMode, setBlockingMode] = useState<'ADDRESS' | 'NXDOMAIN' | 'REFUSED'>(cachedBlockingMode);
@@ -116,7 +121,14 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
     })();
   }, []);
 
+  const FREE_BASIC_PRESETS = ['Cloudflare DNS', 'Google Public DNS', 'Quad9 DNS'];
+
   const handleSelectPreset = async (preset: PresetServer) => {
+    if (trialExpired && !FREE_BASIC_PRESETS.includes(preset.name)) {
+      setPaywallReason(`"${preset.name}" requires Lifetime Pro. Cloudflare (1.1.1.1), Google (8.8.8.8), and Quad9 remain free in Basic Mode.`);
+      setPaywallVisible(true);
+      return;
+    }
     setSelectedServers(preset.servers);
     try {
       await AdGuardVpn.setDnsSettings(preset.servers, blockingMode);
@@ -132,6 +144,11 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
   };
 
   const handleAddCustom = () => {
+    if (trialExpired) {
+      setPaywallReason('Custom DNS resolvers & sdns:// DNS Stamps require Lifetime Pro.');
+      setPaywallVisible(true);
+      return;
+    }
     const trimmed = customServer.trim();
     if (!trimmed) return;
     if (trimmed.toLowerCase().startsWith('sdns://')) {
@@ -155,6 +172,11 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
   };
 
   const handleConnectPrivateDns = async () => {
+    if (trialExpired) {
+      setPaywallReason('NextDNS, Control D, AdGuard Private DNS & sdns:// profiles require Lifetime Pro.');
+      setPaywallVisible(true);
+      return;
+    }
     const res = buildPrivateDnsTarget(privateProvider, privateInput);
     if (res.error || res.servers.length === 0) {
       Alert.alert('Invalid Profile', res.error || 'Please check your input.');
@@ -183,6 +205,11 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
   };
 
   const handleSelectMode = async (mode: 'ADDRESS' | 'NXDOMAIN' | 'REFUSED') => {
+    if (trialExpired) {
+      setPaywallReason('Custom DNS Blocking Response Modes require Lifetime Pro.');
+      setPaywallVisible(true);
+      return;
+    }
     setBlockingMode(mode);
     try {
       await AdGuardVpn.setDnsSettings(selectedServers, mode);
@@ -421,6 +448,12 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
           </Text>
         </View>
       </ScrollView>
+
+      <LifetimePaywallModal
+        visible={paywallVisible}
+        onClose={() => setPaywallVisible(false)}
+        reason={paywallReason}
+      />
     </Container>
   );
 };

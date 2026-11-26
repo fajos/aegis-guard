@@ -170,7 +170,7 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
                 <Text style={styles.sectionHeading}>3. Local Device Storage &amp; Backups Only</Text>
                 <Text style={styles.paragraph}>
                   Recent query logs, 7-day Privacy Insights trends, custom AdBlock rules, Category
-                  Blocker selections, Bedtime Schedules, app bypass preferences, and your 3-day trial
+                  Blocker selections, Bedtime Schedules, app bypass preferences, and your 7-day trial
                   status are stored strictly in your device's isolated local app sandbox. JSON Configuration
                   Backups are generated and imported locally at your explicit direction — we never sync your
                   backups or logs to remote servers, and you can clear logs anytime with "Clear Logs".
@@ -235,12 +235,13 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
                 </Text>
 
                 {/* Section 2 */}
-                <Text style={styles.sectionHeading}>2. 3-Day Trial & Lifetime Pro</Text>
+                <Text style={styles.sectionHeading}>2. 7-Day Trial &amp; Lifetime Pro</Text>
                 <Text style={styles.paragraph}>
-                  AegisGuard includes a 3-day free trial providing full access to all features,
-                  including in-app ad blocking and split-tunneling. Following trial expiration, the
-                  app reverts to Basic Mode (encrypted DNS privacy). Users can unlock permanent full
-                  protection with a one-off Lifetime Pro in-app purchase with zero recurring subscriptions.
+                  AegisGuard includes a 7-day free trial providing full access to all features,
+                  including in-app ad blocking, Family Shield, Category Blockers, Bedtime Schedules,
+                  and custom Private DNS. Following trial expiration, the app reverts to Basic Mode
+                  (free encrypted DNS privacy and manual link inspection). Users can unlock permanent
+                  full protection with a one-off Lifetime Pro in-app purchase with zero recurring subscriptions.
                 </Text>
 
                 {/* Section 3 */}

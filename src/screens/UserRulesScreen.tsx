@@ -11,6 +11,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AdGuardVpn } from '../native/AdGuardVpnModule';
 import { syncCategoriesAndSafari } from '../utils/backup';
+import { useLicense } from '../hooks/useLicense';
+import { LifetimePaywallModal } from '../components/LifetimePaywallModal';
 
 const SYNTAX_TIPS = [
   { syntax: '||example.com^', note: 'Block domain and subdomains' },
@@ -28,6 +30,8 @@ interface UserRulesScreenProps {
 }
 
 export const UserRulesScreen: React.FC<UserRulesScreenProps> = ({ isNested = false }) => {
+  const { trialExpired } = useLicense();
+  const [paywallVisible, setPaywallVisible] = useState(false);
   const [rules, setRules] = useState<string>(cachedUserRules);
   const [isSaving, setIsSaving] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
@@ -50,6 +54,10 @@ export const UserRulesScreen: React.FC<UserRulesScreenProps> = ({ isNested = fal
   }, []);
 
   const handleSave = async () => {
+    if (trialExpired) {
+      setPaywallVisible(true);
+      return;
+    }
     setIsSaving(true);
     console.log('[UserRulesScreen] Saving rules to disk:\n', rules);
     try {
@@ -182,10 +190,16 @@ export const UserRulesScreen: React.FC<UserRulesScreenProps> = ({ isNested = fal
           disabled={isSaving}
         >
           <Text style={styles.saveBtnText}>
-            {isSaving ? 'Compiling Rules...' : 'Save & Reload Engine'}
+            {trialExpired ? '🔒 Unlock Pro to Apply Custom Rules' : isSaving ? 'Compiling Rules...' : 'Save & Reload Engine'}
           </Text>
         </TouchableOpacity>
       </ScrollView>
+
+      <LifetimePaywallModal
+        visible={paywallVisible}
+        onClose={() => setPaywallVisible(false)}
+        reason="Custom User Rules & DNS Rewrites require Lifetime Pro."
+      />
     </Container>
   );
 };

@@ -41,6 +41,15 @@ public class AdGuardVpnModule: Module {
 
   /// Resolves the active DoH URL and bootstrap IPv4/IPv6 addresses based on user selection & entitlements
   private func getDnsConfiguration() -> (servers: [String], dohURL: String, description: String) {
+    let isPremium = (sharedDefaults.object(forKey: "aegis_is_premium") == nil) || sharedDefaults.bool(forKey: "aegis_is_premium")
+    if !isPremium {
+      return (
+        ["1.1.1.1", "1.0.0.1", "2606:4700:4700::1111", "2606:4700:4700::1001"],
+        "https://cloudflare-dns.com/dns-query",
+        "Aegis Guard Basic Privacy"
+      )
+    }
+
     let customServers = sharedDefaults.stringArray(forKey: "aegis_selected_dns_servers")
       ?? UserDefaults.standard.stringArray(forKey: "aegis_selected_dns_servers")
       ?? []
@@ -236,7 +245,7 @@ public class AdGuardVpnModule: Module {
         let manager = existingManager ?? NETunnelProviderManager()
         let proto = (manager.protocolConfiguration as? NETunnelProviderProtocol) ?? NETunnelProviderProtocol()
         proto.providerBundleIdentifier = self.tunnelBundleId
-        proto.serverAddress = "10.0.0.1"
+        proto.serverAddress = "198.18.0.1"
         proto.providerConfiguration = ["appGroup": self.appGroupId]
 
         manager.protocolConfiguration = proto
