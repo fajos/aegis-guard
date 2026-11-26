@@ -75,6 +75,12 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
             // Restore SafeSearch state
             val safeSearch = dnsPrefs.getBoolean("safe_search_enabled", false)
             LocalVpnService.filterEngine.enableSafeSearch = safeSearch
+
+            // Restore persisted Category Blocker domains
+            val savedCats = dnsPrefs.getStringSet("category_domains", null)
+            if (savedCats != null && savedCats.isNotEmpty()) {
+                LocalVpnService.filterEngine.setCategoryDomains(savedCats.toList())
+            }
         } catch (e: Exception) {}
 
         // Buffer and batch query logs to prevent flooding the React Native bridge
@@ -355,8 +361,20 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
     fun setDnsSettings(upstreamServers: ReadableArray, blockingModeStr: String, promise: Promise) {
         val servers = mutableListOf<String>()
         for (i in 0 until upstreamServers.size()) {
-            val item = upstreamServers.getString(i)
-            if (item != null) servers.add(item)
+            val item = upstreamServers.getString(i)?.trim()
+            if (!item.isNullOrEmpty()) {
+                if (item.startsWith("sdns://", ignoreCase = true)) {
+                    val parsed = com.fajostech.aegisguard.dns.DnsStamp.parse(item)
+                    if (parsed != null && parsed.serverAddress.isNotBlank()) {
+                        servers.add(parsed.serverAddress.substringBefore(":"))
+                    }
+                } else if (!item.startsWith("http://", ignoreCase = true) && !item.startsWith("https://", ignoreCase = true)) {
+                    servers.add(item)
+                }
+            }
+        }
+        if (servers.isEmpty()) {
+            servers.addAll(listOf("94.140.14.14", "94.140.15.15"))
         }
 
         val mode = try {
@@ -375,6 +393,20 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
             .putString("blocking_mode", mode.name)
             .apply()
 
+        reconfigureVpnIfRunning()
+        promise.resolve(true)
+    }
+
+    @ReactMethod
+    fun setCategoryDomains(domains: ReadableArray, promise: Promise) {
+        val list = mutableListOf<String>()
+        for (i in 0 until domains.size()) {
+            domains.getString(i)?.trim()?.lowercase()?.let {
+                if (it.isNotEmpty()) list.add(it)
+            }
+        }
+        LocalVpnService.filterEngine.setCategoryDomains(list)
+        dnsPrefs.edit().putStringSet("category_domains", list.toSet()).apply()
         reconfigureVpnIfRunning()
         promise.resolve(true)
     }

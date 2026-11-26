@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AdGuardVpn, vpnEventEmitter, QueryLogRecord } from '../native/AdGuardVpnModule';
+import { syncCategoriesAndSafari } from '../utils/backup';
 
 type FilterTab = 'ALL' | 'BLOCKED' | 'ALLOWED';
 
@@ -187,6 +188,7 @@ export const QueryLogScreen: React.FC<QueryLogScreenProps> = ({ isActive = true 
     const rule = `||${domain}^`;
     try {
       await AdGuardVpn.addCustomRule(rule);
+      await syncCategoriesAndSafari();
       setSelectedEntry(null);
       Alert.alert('Rule Added', `Blocked ${domain} using rule:\n${rule}`);
       fetchLogs();
@@ -199,6 +201,7 @@ export const QueryLogScreen: React.FC<QueryLogScreenProps> = ({ isActive = true 
     const rule = `@@||${domain}^`;
     try {
       await AdGuardVpn.addCustomRule(rule);
+      await syncCategoriesAndSafari();
       setSelectedEntry(null);
       Alert.alert('Rule Added', `Whitelisted ${domain} using rule:\n${rule}`);
       fetchLogs();

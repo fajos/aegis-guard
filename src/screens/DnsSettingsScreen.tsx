@@ -11,6 +11,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AdGuardVpn } from '../native/AdGuardVpnModule';
+import {
+  buildPrivateDnsTarget,
+  parseDnsStamp,
+  PrivateDnsProviderType,
+} from '../utils/dnsStamps';
 
 interface PresetServer {
   name: string;
@@ -65,6 +70,8 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
   const [blockingMode, setBlockingMode] = useState<'ADDRESS' | 'NXDOMAIN' | 'REFUSED'>(cachedBlockingMode);
   const [benchmarks, setBenchmarks] = useState<Record<string, number>>({});
   const [isBenchmarking, setIsBenchmarking] = useState(false);
+  const [privateProvider, setPrivateProvider] = useState<PrivateDnsProviderType>('nextdns');
+  const [privateInput, setPrivateInput] = useState('');
 
   const handleRunSpeedTest = async () => {
     setIsBenchmarking(true);
@@ -127,9 +134,43 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
   const handleAddCustom = () => {
     const trimmed = customServer.trim();
     if (!trimmed) return;
+    if (trimmed.toLowerCase().startsWith('sdns://')) {
+      const parsed = parseDnsStamp(trimmed);
+      if (!parsed) {
+        Alert.alert('Invalid Stamp', 'Could not decode sdns:// DNS stamp.');
+        return;
+      }
+      const target = parsed.dohUrl || parsed.serverAddress;
+      if (target && !selectedServers.includes(target)) {
+        setSelectedServers([target]);
+        setCustomServer('');
+        Alert.alert('Stamp Decoded', `Resolved ${parsed.summary}`);
+      }
+      return;
+    }
     if (!selectedServers.includes(trimmed)) {
       setSelectedServers([...selectedServers, trimmed]);
       setCustomServer('');
+    }
+  };
+
+  const handleConnectPrivateDns = async () => {
+    const res = buildPrivateDnsTarget(privateProvider, privateInput);
+    if (res.error || res.servers.length === 0) {
+      Alert.alert('Invalid Profile', res.error || 'Please check your input.');
+      return;
+    }
+    try {
+      setSelectedServers(res.servers);
+      await AdGuardVpn.setDnsSettings(res.servers, blockingMode);
+      cachedServers = res.servers;
+      cachedBlockingMode = blockingMode;
+      Alert.alert(
+        'Private DNS Connected',
+        `Activated ${res.displayName}.\n\nEndpoint: ${res.servers[0]}`
+      );
+    } catch (e: any) {
+      Alert.alert('Connection Failed', e.message || 'Could not apply private DNS profile');
     }
   };
 
@@ -203,6 +244,57 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
           <TouchableOpacity style={styles.addBtn} onPress={handleAddCustom}>
             <Text style={styles.addBtnText}>Add</Text>
           </TouchableOpacity>
+        </View>
+
+        {/* Private DNS & sdns:// Stamp Profile Builder */}
+        <View style={styles.privateCard}>
+          <Text style={styles.privateTitle}>🔑 Private DNS &amp; Stamp Profile</Text>
+          <Text style={styles.privateSubtitle}>
+            Connect your personal NextDNS, Control D, AdGuard Private ID, or sdns:// DNS Stamp.
+          </Text>
+          <View style={styles.privateTabsRow}>
+            {(
+              [
+                { id: 'nextdns', label: 'NextDNS' },
+                { id: 'controld', label: 'Control D' },
+                { id: 'adguard', label: 'AdGuard ID' },
+                { id: 'sdns', label: 'sdns://' },
+              ] as const
+            ).map((tab) => (
+              <TouchableOpacity
+                key={tab.id}
+                style={[styles.privateTab, privateProvider === tab.id && styles.privateTabActive]}
+                onPress={() => setPrivateProvider(tab.id)}
+              >
+                <Text
+                  style={[
+                    styles.privateTabText,
+                    privateProvider === tab.id && styles.privateTabTextActive,
+                  ]}
+                >
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={styles.privateInputRow}>
+            <TextInput
+              style={styles.customInput}
+              placeholder={
+                privateProvider === 'sdns'
+                  ? 'Paste sdns:// stamp string...'
+                  : `Enter ${privateProvider === 'nextdns' ? 'NextDNS' : privateProvider === 'controld' ? 'Control D' : 'AdGuard'} ID (e.g. abc123)`
+              }
+              placeholderTextColor="#9CA3AF"
+              value={privateInput}
+              onChangeText={setPrivateInput}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <TouchableOpacity style={styles.connectBtn} onPress={handleConnectPrivateDns}>
+              <Text style={styles.connectBtnText}>Connect</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Presets */}
@@ -575,5 +667,64 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     color: '#6B7280',
     textAlign: 'center',
+  },
+  privateCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+  },
+  privateTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  privateSubtitle: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+    marginBottom: 10,
+  },
+  privateTabsRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 10,
+  },
+  privateTab: {
+    flex: 1,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+  },
+  privateTabActive: {
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#93C5FD',
+  },
+  privateTabText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6B7280',
+  },
+  privateTabTextActive: {
+    color: '#1D4ED8',
+  },
+  privateInputRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  connectBtn: {
+    backgroundColor: '#10B981',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    justifyContent: 'center',
+  },
+  connectBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
   },
 });

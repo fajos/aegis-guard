@@ -90,6 +90,11 @@ export interface AdGuardVpnInterface {
   isGameAdsBypassEnabled(): Promise<boolean>;
   setLicenseState(isPremium: boolean): Promise<boolean>;
   isLicensePremium(): Promise<boolean>;
+  isDnsProfileInstalled?(): Promise<boolean>;
+  getSafariBlockerStatus?(): Promise<boolean>;
+  reloadSafariBlocker?(rulesJson: string): Promise<boolean>;
+  updateWidgetStats?(stats: Record<string, any>): Promise<boolean>;
+  setCategoryDomains?(domains: string[]): Promise<boolean>;
 }
 
 export const GAMING_REWARDED_AD_DOMAINS: string[] = [
@@ -565,6 +570,7 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
   private familyProtection = false;
   private gameAdsBypass = false;
   private isPremium = true;
+  private categoryDomains: string[] = [];
 
   private userRulesList: string[] = [
     '! Aegis Guard User Rules',
@@ -1089,6 +1095,52 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
     return this.gameAdsBypass;
   }
 
+  async setCategoryDomains(domains: string[]): Promise<boolean> {
+    this.categoryDomains = domains.map((d) => d.trim().toLowerCase()).filter(Boolean);
+    if (resolvedNativeModule && typeof resolvedNativeModule.setCategoryDomains === 'function') {
+      try {
+        await resolvedNativeModule.setCategoryDomains(this.categoryDomains);
+      } catch {}
+    }
+    return true;
+  }
+
+  async isDnsProfileInstalled(): Promise<boolean> {
+    if (resolvedNativeModule && typeof resolvedNativeModule.isDnsProfileInstalled === 'function') {
+      try {
+        return await resolvedNativeModule.isDnsProfileInstalled();
+      } catch {}
+    }
+    return this.running;
+  }
+
+  async getSafariBlockerStatus(): Promise<boolean> {
+    if (resolvedNativeModule && typeof resolvedNativeModule.getSafariBlockerStatus === 'function') {
+      try {
+        return await resolvedNativeModule.getSafariBlockerStatus();
+      } catch {}
+    }
+    return false;
+  }
+
+  async reloadSafariBlocker(rulesJson: string): Promise<boolean> {
+    if (resolvedNativeModule && typeof resolvedNativeModule.reloadSafariBlocker === 'function') {
+      try {
+        return await resolvedNativeModule.reloadSafariBlocker(rulesJson);
+      } catch {}
+    }
+    return false;
+  }
+
+  async updateWidgetStats(stats: Record<string, any>): Promise<boolean> {
+    if (resolvedNativeModule && typeof resolvedNativeModule.updateWidgetStats === 'function') {
+      try {
+        return await resolvedNativeModule.updateWidgetStats(stats);
+      } catch {}
+    }
+    return true;
+  }
+
   async setLicenseState(isPremium: boolean): Promise<boolean> {
     await this.ensureInitialized();
     this.isPremium = isPremium;
@@ -1384,6 +1436,20 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
           domain,
           isBlocked: true,
           matchedRule: `||${domain}^$family-adult-block`,
+          isRewrite: false,
+          rewriteIp: '0.0.0.0',
+        };
+      }
+    }
+
+    // 3b. Active Category Blockers & Bedtime Schedule
+    if (this.categoryDomains.length > 0) {
+      const catMatch = this.categoryDomains.find((cd) => d === cd || d.endsWith('.' + cd));
+      if (catMatch) {
+        return {
+          domain,
+          isBlocked: true,
+          matchedRule: `||${catMatch}^$category`,
           isRewrite: false,
           rewriteIp: '0.0.0.0',
         };

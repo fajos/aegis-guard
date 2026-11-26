@@ -20,6 +20,25 @@ class DnsFilterEngine(
     var enableSafeSearch: Boolean = false
     var enableFamilyFilter: Boolean = false
 
+    @Volatile
+    private var categoryDomains: Set<String> = emptySet()
+
+    fun setCategoryDomains(domains: List<String>) {
+        categoryDomains = domains.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet()
+    }
+
+    private fun isDomainInCategory(domain: String): String? {
+        val cats = categoryDomains
+        if (cats.isEmpty()) return null
+        val lower = domain.lowercase()
+        for (cat in cats) {
+            if (lower == cat || lower.endsWith(".$cat")) {
+                return cat
+            }
+        }
+        return null
+    }
+
     val totalQueries = AtomicLong(0)
     val blockedQueries = AtomicLong(0)
     val allowedQueries = AtomicLong(0)
@@ -109,11 +128,23 @@ class DnsFilterEngine(
                 )
             }
             is RuleMatcher.MatchResult.NoMatch -> {
-                allowedQueries.incrementAndGet()
-                EvaluationResult(
-                    isBlocked = false,
-                    domain = domain
-                )
+                val blockedCategory = isDomainInCategory(domain)
+                if (blockedCategory != null) {
+                    blockedQueries.incrementAndGet()
+                    EvaluationResult(
+                        isBlocked = true,
+                        domain = domain,
+                        blockingMode = blockingMode,
+                        ttl = blockedTtlSecs,
+                        matchedRule = "||$blockedCategory^\$category"
+                    )
+                } else {
+                    allowedQueries.incrementAndGet()
+                    EvaluationResult(
+                        isBlocked = false,
+                        domain = domain
+                    )
+                }
             }
         }
     }

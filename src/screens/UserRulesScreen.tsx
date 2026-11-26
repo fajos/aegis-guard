@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AdGuardVpn } from '../native/AdGuardVpnModule';
+import { syncCategoriesAndSafari } from '../utils/backup';
 
 const SYNTAX_TIPS = [
   { syntax: '||example.com^', note: 'Block domain and subdomains' },
@@ -54,6 +55,7 @@ export const UserRulesScreen: React.FC<UserRulesScreenProps> = ({ isNested = fal
     try {
       await AdGuardVpn.saveUserRules(rules);
       cachedUserRules = rules;
+      await syncCategoriesAndSafari();
       console.log('[UserRulesScreen] Rules successfully parsed and reloaded into engine');
       Alert.alert('Rules Saved', 'Your custom rules have been parsed and reloaded into the filter engine.');
     } catch (e: any) {

@@ -6,6 +6,7 @@ import { FamilySecuritySection } from '../components/FamilySecuritySection';
 import { useLicense } from '../hooks/useLicense';
 import { LifetimePaywallModal } from '../components/LifetimePaywallModal';
 import { PrivacyPolicyModal, LegalTab } from '../components/PrivacyPolicyModal';
+import { BackupRestoreModal } from '../components/BackupRestoreModal';
 
 export type SettingsSubTab = 'dns' | 'rules' | 'security';
 
@@ -18,6 +19,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ initialSubTab = 
   const { isLifetimePurchased, isTrialActive, trialExpired, daysRemaining, hoursRemaining, restorePurchases } = useLicense();
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
+  const [backupModalVisible, setBackupModalVisible] = useState(false);
   const [legalTab, setLegalTab] = useState<LegalTab>('privacy');
 
   const handleLicenseCardPress = () => {
@@ -184,7 +186,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ initialSubTab = 
           }}
           activeOpacity={0.7}
         >
-          <Text style={styles.legalButtonText}>📜 Terms of Service</Text>
+          <Text style={styles.legalButtonText}>📜 Terms</Text>
+        </TouchableOpacity>
+        <Text style={styles.legalDot}>•</Text>
+        <TouchableOpacity
+          style={styles.legalButton}
+          onPress={() => setBackupModalVisible(true)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.legalButtonText}>💾 Backup</Text>
         </TouchableOpacity>
       </View>
 
@@ -199,6 +209,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ initialSubTab = 
         visible={privacyModalVisible}
         onClose={() => setPrivacyModalVisible(false)}
         initialTab={legalTab}
+      />
+
+      {/* Backup & Restore Settings Modal */}
+      <BackupRestoreModal
+        visible={backupModalVisible}
+        onClose={() => setBackupModalVisible(false)}
       />
     </View>
   );

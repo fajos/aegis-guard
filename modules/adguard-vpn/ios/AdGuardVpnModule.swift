@@ -1,7 +1,13 @@
 import ExpoModulesCore
 import NetworkExtension
+import SafariServices
+#if canImport(WidgetKit)
+import WidgetKit
+#endif
 
 public class AdGuardVpnModule: Module {
+  private let appGroupId = "group.com.fajostech.aegisguard"
+  private let safariBlockerId = "com.fajostech.aegisguard.SafariBlocker"
   private let criticalAdDomains: [String] = [
     "googleads.g.doubleclick.net",
     "pubads.g.doubleclick.net",
@@ -70,7 +76,22 @@ public class AdGuardVpnModule: Module {
         )
       } else {
         let doh = primary.starts(with: "https://") ? primary : "https://\(primary)/dns-query"
-        return (customServers, doh, "Aegis Guard Custom DNS")
+        let lower = doh.lowercased()
+        // Filter bootstrap list strictly to IP addresses so NEDNSOverHTTPSSettings never gets URLs in `servers`
+        let ipOnlyServers = customServers.filter { srv in
+          !srv.contains("://") && (srv.contains(".") || srv.contains(":")) && !srv.contains("/")
+        }
+        if lower.contains("nextdns.io") {
+          let bootstrap = ipOnlyServers.isEmpty ? ["45.90.28.0", "45.90.30.0", "2a07:a8c0::", "2a07:a8c1::"] : ipOnlyServers
+          return (bootstrap, doh, "Aegis Guard - NextDNS")
+        } else if lower.contains("controld.com") {
+          let bootstrap = ipOnlyServers.isEmpty ? ["76.76.2.0", "76.76.10.0", "2606:1a40::", "2606:1a40:1::"] : ipOnlyServers
+          return (bootstrap, doh, "Aegis Guard - Control D")
+        } else if lower.contains("adguard-dns.com") {
+          let bootstrap = ipOnlyServers.isEmpty ? ["94.140.14.49", "94.140.14.59", "2a10:50c0::ded:ff", "2a10:50c0::dad:ff"] : ipOnlyServers
+          return (bootstrap, doh, "Aegis Guard - Private DNS")
+        }
+        return (ipOnlyServers, doh, "Aegis Guard - Private DNS")
       }
     }
 
@@ -89,6 +110,36 @@ public class AdGuardVpnModule: Module {
       "https://dns.adguard-dns.com/dns-query",
       "Aegis Guard DNS (Default)"
     )
+  }
+
+  private func syncWidgetState(isRunning: Bool? = nil, activeProfileName: String? = nil, stats: [String: Any]? = nil) {
+    guard let sharedDefaults = UserDefaults(suiteName: appGroupId) else { return }
+    if let running = isRunning {
+      sharedDefaults.set(running, forKey: "widget_is_running")
+    }
+    if let name = activeProfileName {
+      sharedDefaults.set(name, forKey: "widget_active_profile")
+    }
+    if let s = stats {
+      if let blocked = s["blockedQueries"] as? NSNumber {
+        sharedDefaults.set(blocked.intValue, forKey: "widget_blocked_queries")
+      }
+      if let total = s["totalQueries"] as? NSNumber {
+        sharedDefaults.set(total.intValue, forKey: "widget_total_queries")
+      }
+      if let saved = s["dataSavedBytes"] as? NSNumber {
+        sharedDefaults.set(saved.doubleValue, forKey: "widget_data_saved_bytes")
+      }
+      if let rate = s["blockRate"] as? NSNumber {
+        sharedDefaults.set(rate.doubleValue, forKey: "widget_block_rate")
+      }
+    }
+    sharedDefaults.synchronize()
+    #if canImport(WidgetKit)
+    if #available(iOS 14.0, *) {
+      WidgetCenter.shared.reloadAllTimelines()
+    }
+    #endif
   }
 
   public func definition() -> ModuleDefinition {
@@ -136,6 +187,7 @@ public class AdGuardVpnModule: Module {
           if let error = saveError {
             promise.reject("SAVE_ERROR", error.localizedDescription)
           } else {
+            self.syncWidgetState(isRunning: manager.isEnabled, activeProfileName: config.description)
             self.sendEvent("onVpnStateChanged", ["isRunning": manager.isEnabled])
             promise.resolve(manager.isEnabled)
           }
@@ -147,6 +199,7 @@ public class AdGuardVpnModule: Module {
       let manager = NEDNSSettingsManager.shared()
       manager.loadFromPreferences { loadError in
         if let error = loadError {
+          self.syncWidgetState(isRunning: false)
           self.sendEvent("onVpnStateChanged", ["isRunning": false])
           promise.resolve(true)
           return
@@ -158,6 +211,7 @@ public class AdGuardVpnModule: Module {
         manager.onDemandRules = [disconnectRule]
 
         manager.saveToPreferences { saveError in
+          self.syncWidgetState(isRunning: false)
           self.sendEvent("onVpnStateChanged", ["isRunning": false])
           promise.resolve(true)
         }
@@ -190,6 +244,9 @@ public class AdGuardVpnModule: Module {
         }
 
         manager.saveToPreferences { saveError in
+          if saveError == nil {
+            self.syncWidgetState(activeProfileName: config.description)
+          }
           promise.resolve(saveError == nil)
         }
       }
@@ -304,6 +361,44 @@ public class AdGuardVpnModule: Module {
         "rewriteIp": ""
       ]
       promise.resolve(result)
+    }
+
+    AsyncFunction("isDnsProfileInstalled") { (promise: Promise) in
+      let manager = NEDNSSettingsManager.shared()
+      manager.loadFromPreferences { error in
+        promise.resolve(error == nil && manager.isEnabled)
+      }
+    }
+
+    AsyncFunction("getSafariBlockerStatus") { (promise: Promise) in
+      SFContentBlockerManager.getStateOfContentBlocker(withIdentifier: self.safariBlockerId) { state, error in
+        if error != nil {
+          promise.resolve(false)
+        } else {
+          promise.resolve(state?.isEnabled ?? false)
+        }
+      }
+    }
+
+    AsyncFunction("reloadSafariBlocker") { (rulesJson: String, promise: Promise) in
+      if let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: self.appGroupId) {
+        let targetURL = containerURL.appendingPathComponent("blockerList.json")
+        do {
+          try rulesJson.write(to: targetURL, atomically: true, encoding: .utf8)
+        } catch {
+          promise.resolve(false)
+          return
+        }
+      }
+      SFContentBlockerManager.reloadContentBlocker(withIdentifier: self.safariBlockerId) { error in
+        promise.resolve(error == nil)
+      }
+    }
+
+    AsyncFunction("updateWidgetStats") { (stats: [String: Any], promise: Promise) in
+      let config = self.getDnsConfiguration()
+      self.syncWidgetState(activeProfileName: config.description, stats: stats)
+      promise.resolve(true)
     }
   }
 }

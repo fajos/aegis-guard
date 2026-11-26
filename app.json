@@ -56,6 +56,7 @@
     },
     "plugins": [
       "./plugins/withAdguardVpn",
+      "./plugins/withAdguardIosExtensions",
       "expo-status-bar",
       [
         "expo-splash-screen",
@@ -68,7 +69,33 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "28b53352-a193-4249-a3d1-c48bff8492e5"
+        "projectId": "28b53352-a193-4249-a3d1-c48bff8492e5",
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "AegisSafariBlocker",
+                  "bundleIdentifier": "com.fajostech.aegisguard.SafariBlocker",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.com.fajostech.aegisguard"
+                    ]
+                  }
+                },
+                {
+                  "targetName": "AegisWidget",
+                  "bundleIdentifier": "com.fajostech.aegisguard.Widget",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.com.fajostech.aegisguard"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
       }
     },
     "owner": "aegis-guard"

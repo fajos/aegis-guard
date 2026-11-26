@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,35 +6,82 @@ import {
   StyleSheet,
   Alert,
   ScrollView,
+  TouchableOpacity,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AdGuardVpn } from '../native/AdGuardVpnModule';
 import { authenticateWithBiometrics } from '../utils/security';
+import {
+  BedtimeSchedule,
+  CATEGORY_DEFINITIONS,
+  CategoryId,
+  DEFAULT_SCHEDULE,
+  formatHourLabel,
+  isScheduleCurrentlyActive,
+} from '../utils/categories';
+import { CATEGORY_STORAGE_KEYS, syncCategoriesAndSafari } from '../utils/backup';
 
 export const FamilySecuritySection: React.FC = () => {
   const [familyProtectionEnabled, setFamilyProtectionEnabled] = useState(false);
   const [safeSearchEnabled, setSafeSearchEnabled] = useState(false);
   const [parentalLockEnabled, setParentalLockEnabled] = useState(false);
+  const [enabledCategories, setEnabledCategories] = useState<Record<CategoryId, boolean>>({
+    social: false,
+    gambling: false,
+    gaming: false,
+    dating: false,
+    crypto: true,
+  });
+  const [schedule, setSchedule] = useState<BedtimeSchedule>(DEFAULT_SCHEDULE);
   const [isLoading, setIsLoading] = useState(true);
+
+  const syncEnforcement = useCallback(
+    async (cats: Record<CategoryId, boolean>, sched: BedtimeSchedule) => {
+      await syncCategoriesAndSafari(cats, sched);
+    },
+    []
+  );
 
   useEffect(() => {
     (async () => {
       try {
         if (!AdGuardVpn) return;
-        const [safe, locked, family] = await Promise.all([
+        const [safe, locked, family, rawCats, rawSched] = await Promise.all([
           AdGuardVpn.isSafeSearchEnabled(),
           AdGuardVpn.isParentalLockEnabled(),
           AdGuardVpn.isFamilyProtectionEnabled(),
+          AsyncStorage.getItem(CATEGORY_STORAGE_KEYS.CATEGORIES),
+          AsyncStorage.getItem(CATEGORY_STORAGE_KEYS.SCHEDULE),
         ]);
         setSafeSearchEnabled(safe);
         setParentalLockEnabled(locked);
         setFamilyProtectionEnabled(family);
+
+        let parsedCats: Record<CategoryId, boolean> = {
+          social: false,
+          gambling: false,
+          gaming: false,
+          dating: false,
+          crypto: true,
+        };
+        if (rawCats) {
+          parsedCats = { ...parsedCats, ...JSON.parse(rawCats) };
+        }
+        setEnabledCategories(parsedCats);
+
+        const parsedSched: BedtimeSchedule = rawSched
+          ? { ...DEFAULT_SCHEDULE, ...JSON.parse(rawSched) }
+          : DEFAULT_SCHEDULE;
+        setSchedule(parsedSched);
+
+        await syncEnforcement(parsedCats, parsedSched);
       } catch (e) {
         console.error('[FamilySecurity] load error:', e);
       } finally {
         setIsLoading(false);
       }
     })();
-  }, []);
+  }, [syncEnforcement]);
 
   const handleToggleFamilyProtection = async (newValue: boolean) => {
     // If turning OFF, strictly require biometric authentication
@@ -101,6 +148,28 @@ export const FamilySecuritySection: React.FC = () => {
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Failed to update Parental Lock');
     }
+  };
+
+  const handleToggleCategory = async (categoryId: CategoryId) => {
+    const nextVal = !enabledCategories[categoryId];
+    if (!nextVal && parentalLockEnabled) {
+      const ok = await authenticateWithBiometrics('Authenticate to unblock category filter');
+      if (!ok) return;
+    }
+    const nextCats = { ...enabledCategories, [categoryId]: nextVal };
+    setEnabledCategories(nextCats);
+    await AsyncStorage.setItem(CATEGORY_STORAGE_KEYS.CATEGORIES, JSON.stringify(nextCats)).catch(() => {});
+    await syncEnforcement(nextCats, schedule);
+  };
+
+  const updateSchedule = async (nextSched: BedtimeSchedule, requireAuth: boolean) => {
+    if (requireAuth && parentalLockEnabled) {
+      const ok = await authenticateWithBiometrics('Authenticate to modify Bedtime Schedule');
+      if (!ok) return;
+    }
+    setSchedule(nextSched);
+    await AsyncStorage.setItem(CATEGORY_STORAGE_KEYS.SCHEDULE, JSON.stringify(nextSched)).catch(() => {});
+    await syncEnforcement(enabledCategories, nextSched);
   };
 
   if (isLoading) {
@@ -197,6 +266,127 @@ export const FamilySecuritySection: React.FC = () => {
         </Text>
       </View>
 
+      {/* 1-Tap Category Blockers */}
+      <View style={styles.card}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardIcon}>🗂️</Text>
+          <View style={styles.cardHeaderText}>
+            <Text style={styles.cardTitle}>Category Blockers</Text>
+            <Text style={styles.cardSubtitle}>
+              1-tap blocking synced to Local VPN &amp; Safari Blocker
+            </Text>
+          </View>
+        </View>
+
+        {CATEGORY_DEFINITIONS.map((cat) => (
+          <View key={cat.id} style={styles.catRow}>
+            <Text style={styles.catIcon}>{cat.icon}</Text>
+            <View style={{ flex: 1, marginRight: 10 }}>
+              <Text style={styles.catTitle}>{cat.title}</Text>
+              <Text style={styles.catDesc}>{cat.description}</Text>
+            </View>
+            <Switch
+              value={!!enabledCategories[cat.id]}
+              onValueChange={() => handleToggleCategory(cat.id)}
+              trackColor={{ false: '#D1D5DB', true: '#6EE7B7' }}
+              thumbColor={enabledCategories[cat.id] ? '#10B981' : '#F3F4F6'}
+            />
+          </View>
+        ))}
+      </View>
+
+      {/* Bedtime & Study Schedule */}
+      <View style={styles.card}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardIcon}>🌙</Text>
+          <View style={styles.cardHeaderText}>
+            <Text style={styles.cardTitle}>Bedtime &amp; Focus Schedule</Text>
+            <Text style={styles.cardSubtitle}>
+              {isScheduleCurrentlyActive(schedule)
+                ? 'Active now — blocking scheduled categories'
+                : 'Auto-block selected apps during downtime hours'}
+            </Text>
+          </View>
+          <Switch
+            value={schedule.enabled}
+            onValueChange={(val) => updateSchedule({ ...schedule, enabled: val }, !val)}
+            trackColor={{ false: '#D1D5DB', true: '#93C5FD' }}
+            thumbColor={schedule.enabled ? '#2563EB' : '#F3F4F6'}
+          />
+        </View>
+
+        <View style={styles.timeRow}>
+          <View style={styles.timeBox}>
+            <Text style={styles.timeLabel}>Starts</Text>
+            <View style={styles.timeStepper}>
+              <TouchableOpacity
+                style={styles.stepBtn}
+                onPress={() =>
+                  updateSchedule({ ...schedule, startHour: (schedule.startHour + 23) % 24 }, true)
+                }
+              >
+                <Text style={styles.stepBtnText}>−</Text>
+              </TouchableOpacity>
+              <Text style={styles.timeVal}>{formatHourLabel(schedule.startHour)}</Text>
+              <TouchableOpacity
+                style={styles.stepBtn}
+                onPress={() =>
+                  updateSchedule({ ...schedule, startHour: (schedule.startHour + 1) % 24 }, true)
+                }
+              >
+                <Text style={styles.stepBtnText}>+</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.timeBox}>
+            <Text style={styles.timeLabel}>Ends</Text>
+            <View style={styles.timeStepper}>
+              <TouchableOpacity
+                style={styles.stepBtn}
+                onPress={() =>
+                  updateSchedule({ ...schedule, endHour: (schedule.endHour + 23) % 24 }, true)
+                }
+              >
+                <Text style={styles.stepBtnText}>−</Text>
+              </TouchableOpacity>
+              <Text style={styles.timeVal}>{formatHourLabel(schedule.endHour)}</Text>
+              <TouchableOpacity
+                style={styles.stepBtn}
+                onPress={() =>
+                  updateSchedule({ ...schedule, endHour: (schedule.endHour + 1) % 24 }, true)
+                }
+              >
+                <Text style={styles.stepBtnText}>+</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        <Text style={styles.schedHint}>Scheduled Categories:</Text>
+        <View style={styles.schedChipsRow}>
+          {CATEGORY_DEFINITIONS.map((cat) => {
+            const active = schedule.categories.includes(cat.id);
+            return (
+              <TouchableOpacity
+                key={cat.id}
+                style={[styles.schedChip, active && styles.schedChipActive]}
+                onPress={() => {
+                  const next = active
+                    ? schedule.categories.filter((c) => c !== cat.id)
+                    : [...schedule.categories, cat.id];
+                  updateSchedule({ ...schedule, categories: next }, active);
+                }}
+              >
+                <Text style={[styles.schedChipText, active && styles.schedChipTextActive]}>
+                  {cat.icon} {cat.title.split(' ')[0]}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
       {/* Info Card */}
       <View style={styles.infoBox}>
         <Text style={styles.infoBoxText}>
@@ -289,6 +479,101 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   infoBoxBold: {
+    fontWeight: '700',
+  },
+  catRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  catIcon: {
+    fontSize: 20,
+    marginRight: 10,
+  },
+  catTitle: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  catDesc: {
+    fontSize: 11.5,
+    color: '#6B7280',
+    marginTop: 1,
+  },
+  timeRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 12,
+  },
+  timeBox: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  timeLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6B7280',
+    marginBottom: 6,
+  },
+  timeStepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  stepBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    backgroundColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepBtnText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  timeVal: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  schedHint: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  schedChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  schedChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  schedChipActive: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#93C5FD',
+  },
+  schedChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#4B5563',
+  },
+  schedChipTextActive: {
+    color: '#1D4ED8',
     fontWeight: '700',
   },
 });

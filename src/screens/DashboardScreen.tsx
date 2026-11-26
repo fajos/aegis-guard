@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   ScrollView,
   View,
@@ -6,7 +6,9 @@ import {
   Switch,
   TouchableOpacity,
   StyleSheet,
+  Platform,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useAdGuardVpn } from '../hooks/useAdGuardVpn';
@@ -15,6 +17,10 @@ import { AdGuardVpn } from '../native/AdGuardVpnModule';
 import { ShieldAuditModal } from '../components/ShieldAuditModal';
 import { LifetimePaywallModal } from '../components/LifetimePaywallModal';
 import { PrivacyPolicyModal } from '../components/PrivacyPolicyModal';
+import { PrivacyInsightsCard } from '../components/PrivacyInsightsCard';
+import { LinkScannerModal } from '../components/LinkScannerModal';
+import { OnboardingModal } from '../components/OnboardingModal';
+import { CATEGORY_STORAGE_KEYS } from '../utils/backup';
 import { authenticateWithBiometrics } from '../utils/security';
 
 interface DashboardScreenProps {
@@ -24,12 +30,35 @@ interface DashboardScreenProps {
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({
   isActive = true,
 }) => {
-  const { isRunning, stats, snoozeSeconds, toggleVpn, snoozeVpn, cancelSnooze } = useAdGuardVpn(isActive);
+  const { isRunning, stats, recentLogs, snoozeSeconds, toggleVpn, snoozeVpn, cancelSnooze } = useAdGuardVpn(isActive);
   const { isPremium, isTrialActive, isLifetimePurchased, trialExpired, daysRemaining, hoursRemaining } = useLicense();
   const [auditModalVisible, setAuditModalVisible] = useState(false);
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [paywallReason, setPaywallReason] = useState<string | undefined>(undefined);
   const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
+  const [scannerModalVisible, setScannerModalVisible] = useState(false);
+  const [onboardingVisible, setOnboardingVisible] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(CATEGORY_STORAGE_KEYS.ONBOARDING_DONE)
+      .then((done) => {
+        if (done !== 'true') {
+          setOnboardingVisible(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'ios' && typeof AdGuardVpn.updateWidgetStats === 'function') {
+      AdGuardVpn.updateWidgetStats({
+        blockedQueries: stats.blockedQueries,
+        totalQueries: stats.totalQueries,
+        dataSavedBytes: stats.dataSavedBytes,
+        blockRate: stats.blockRate,
+      }).catch(() => {});
+    }
+  }, [stats.blockedQueries, stats.totalQueries, stats.dataSavedBytes, stats.blockRate]);
 
   const formatSnoozeTime = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -276,6 +305,12 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
           </View>
         </View>
 
+        {/* Privacy Insights & 7-Day Activity */}
+        <PrivacyInsightsCard
+          recentLogs={recentLogs}
+          blockedQueries={stats.blockedQueries}
+        />
+
         {/* Diagnostic Security & Leak Audit Button */}
         <TouchableOpacity
           style={styles.auditCard}
@@ -293,6 +328,33 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
           </View>
           <Text style={styles.auditCardArrow}>→</Text>
         </TouchableOpacity>
+
+        {/* Quick Tools Row: Link Scanner & Setup Guide */}
+        <View style={styles.quickToolsRow}>
+          <TouchableOpacity
+            style={styles.quickToolBtn}
+            activeOpacity={0.8}
+            onPress={() => setScannerModalVisible(true)}
+          >
+            <Text style={styles.quickToolIcon}>🔍</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.quickToolTitle}>Link Scanner</Text>
+              <Text style={styles.quickToolSub}>Check SMS/URL safety</Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.quickToolBtn}
+            activeOpacity={0.8}
+            onPress={() => setOnboardingVisible(true)}
+          >
+            <Text style={styles.quickToolIcon}>🧭</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.quickToolTitle}>Setup Guide</Text>
+              <Text style={styles.quickToolSub}>DNS &amp; Safari checklist</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
 
         {/* Protection Details Card */}
         <View style={styles.infoCard}>
@@ -375,6 +437,18 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
         visible={privacyModalVisible}
         onClose={() => setPrivacyModalVisible(false)}
         initialTab="privacy"
+      />
+
+      {/* Phishing & Suspicious Link Scanner Modal */}
+      <LinkScannerModal
+        visible={scannerModalVisible}
+        onClose={() => setScannerModalVisible(false)}
+      />
+
+      {/* Interactive Setup & Safari Extension Onboarding */}
+      <OnboardingModal
+        visible={onboardingVisible}
+        onClose={() => setOnboardingVisible(false)}
       />
     </SafeAreaView>
   );
@@ -828,5 +902,33 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: '#10B981',
+  },
+  quickToolsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 14,
+  },
+  quickToolBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 14,
+    padding: 12,
+  },
+  quickToolIcon: {
+    fontSize: 20,
+    marginRight: 8,
+  },
+  quickToolTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  quickToolSub: {
+    fontSize: 11,
+    color: '#6B7280',
   },
 });
