@@ -56,7 +56,17 @@ class AppManager(private val context: Context) {
         } else {
             bypassedPackages.remove(packageName)
         }
-        prefs.edit().putStringSet("bypassed_packages", bypassedPackages).apply()
+        // Always persist a fresh immutable copy so Android SharedPreferences detects changes reliably
+        prefs.edit().putStringSet("bypassed_packages", bypassedPackages.toSet()).apply()
+    }
+
+    fun setAppsBypassBatch(packageNames: List<String>, bypass: Boolean) {
+        if (bypass) {
+            bypassedPackages.addAll(packageNames)
+        } else {
+            bypassedPackages.removeAll(packageNames.toSet())
+        }
+        prefs.edit().putStringSet("bypassed_packages", bypassedPackages.toSet()).apply()
     }
 
     fun getBypassedPackages(): Set<String> = bypassedPackages.toSet()

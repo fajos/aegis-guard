@@ -197,10 +197,16 @@ class DnsFilterEngine(
             "||m.yap.yahoo.com^",
             "||b.gemini.yahoo.com^",
             "||gemini.yahoo.com^",
+            "||beap.gemini.yahoo.com^",
+            "||pr.comet.yahoo.com^",
             "||adserver.yahoo.com^",
             "||yads.c.oath.com^",
+            "||yads.zedo.com^",
             "||analytics.query.yahoo.com^",
             "||ups.analytics.yahoo.com^",
+            "||opus.analytics.yahoo.com^",
+            "||sp.analytics.yahoo.com^",
+            "||cmp.yahoo.com^",
             "||coinhive.com^"
         )
         defaultRules.forEach { line ->

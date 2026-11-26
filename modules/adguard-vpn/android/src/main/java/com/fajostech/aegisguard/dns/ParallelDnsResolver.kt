@@ -18,7 +18,7 @@ import java.net.SocketTimeoutException
  * Races upstream servers concurrently and returns the fastest verified response.
  */
 class ParallelDnsResolver(
-    private val upstreamServers: List<String> = listOf("94.140.14.14", "1.1.1.1", "8.8.8.8"),
+    private val upstreamServers: List<String> = listOf("94.140.14.14", "94.140.15.15"),
     private val vpnService: VpnService? = null,
     private val timeoutMs: Int = 2000,
     private val dnsCache: DnsCache = DnsCache()
@@ -42,7 +42,7 @@ class ParallelDnsResolver(
         // Filter out any virtual or loopback IPs to avoid recursive routing loops
         val validUpstreams = upstreamServers
             .filter { it != "198.18.53.53" && it != "127.0.0.1" && it != "0.0.0.0" && it.isNotBlank() }
-            .ifEmpty { listOf("94.140.14.14", "1.1.1.1", "8.8.8.8") }
+            .ifEmpty { listOf("94.140.14.14", "94.140.15.15") }
 
         // 2. Race parallel upstreams with hard timeout
         return runBlocking {

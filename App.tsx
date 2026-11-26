@@ -54,7 +54,7 @@ function MainNavigator(): React.JSX.Element {
           <FiltersScreen />
         </View>
         <View style={[styles.screenWrapper, activeTab !== 'apps' && styles.hidden]}>
-          <AppManagementScreen />
+          <AppManagementScreen isActive={activeTab === 'apps'} />
         </View>
         <View style={[styles.screenWrapper, activeTab !== 'settings' && styles.hidden]}>
           <SettingsScreen />

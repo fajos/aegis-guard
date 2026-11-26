@@ -52,7 +52,7 @@ const PRESET_PROVIDERS: PresetServer[] = [
 ];
 
 // In-memory cache for instant DNS configuration rendering
-let cachedServers: string[] = ['94.140.14.14', '1.1.1.1'];
+let cachedServers: string[] = ['94.140.14.14', '94.140.15.15'];
 let cachedBlockingMode: 'ADDRESS' | 'NXDOMAIN' | 'REFUSED' = 'ADDRESS';
 
 interface DnsSettingsScreenProps {

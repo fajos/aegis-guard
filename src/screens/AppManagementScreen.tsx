@@ -10,9 +10,12 @@ import {
   Alert,
   TouchableOpacity,
   Modal,
+  Platform,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLicense } from '../hooks/useLicense';
+import { useAdGuardVpn } from '../hooks/useAdGuardVpn';
 import { LifetimePaywallModal } from '../components/LifetimePaywallModal';
 import {
   AdGuardVpn,
@@ -25,8 +28,13 @@ import {
 // Module-level in-memory cache to prevent repetitive full-system package scans
 let cachedApps: AppManagementInfo[] = [];
 
-export const AppManagementScreen: React.FC = () => {
+interface AppManagementScreenProps {
+  isActive?: boolean;
+}
+
+export const AppManagementScreen: React.FC<AppManagementScreenProps> = ({ isActive = true }) => {
   const { isPremium, trialExpired } = useLicense();
+  const { isRunning, snoozeSeconds, snoozeVpn, cancelSnooze } = useAdGuardVpn(isActive);
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [paywallReason, setPaywallReason] = useState<string | undefined>(undefined);
 
@@ -218,10 +226,18 @@ export const AppManagementScreen: React.FC = () => {
       cachedApps = updater(cachedApps);
       setApps(updater);
 
-      // 2. Persist to native layer in background
-      for (const app of filteredApps) {
-        if (app.isVpnBypassed !== shouldBypass) {
-          AdGuardVpn.setAppBypass(app.packageName, shouldBypass);
+      // 2. Persist to native layer atomically
+      const changedPackages = filteredApps
+        .filter((app) => app.isVpnBypassed !== shouldBypass)
+        .map((app) => app.packageName);
+
+      if (changedPackages.length > 0) {
+        if (typeof AdGuardVpn.setAppsBypassBatch === 'function') {
+          await AdGuardVpn.setAppsBypassBatch(changedPackages, shouldBypass);
+        } else {
+          for (const pkg of changedPackages) {
+            await AdGuardVpn.setAppBypass(pkg, shouldBypass);
+          }
         }
       }
     } catch (e: any) {
@@ -229,6 +245,99 @@ export const AppManagementScreen: React.FC = () => {
       Alert.alert('Error', e.message || 'Failed to update apps');
     }
   };
+
+  const formatSnoozeTime = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  if (Platform.OS === 'ios') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+          <View style={styles.header}>
+            <Text style={styles.title}>iOS App Protection</Text>
+            <Text style={styles.subtitle}>
+              System-wide Encrypted DNS protection across all iPhone & iPad apps
+            </Text>
+          </View>
+
+          <View style={styles.iosInfoCard}>
+            <Text style={styles.iosInfoTitle}>🛡️ Global iOS Protection Active</Text>
+            <Text style={styles.iosInfoText}>
+              Apple's NetworkExtension framework (NEDNSSettingsManager) routes DNS requests globally across all apps on your device and does not allow toggling individual apps on or off separately.
+            </Text>
+            <Text style={[styles.iosInfoText, { marginTop: 8 }]}>
+              Status:{' '}
+              <Text style={{ fontWeight: '800', color: isRunning ? '#059669' : '#D97706' }}>
+                {snoozeSeconds > 0
+                  ? `Paused (${formatSnoozeTime(snoozeSeconds)} remaining)`
+                  : isRunning
+                  ? 'Protecting All Apps'
+                  : 'Protection Paused'}
+              </Text>
+            </Text>
+          </View>
+
+          <View style={styles.iosCard}>
+            <Text style={styles.iosCardTitle}>🎮 Temporary Bypass (Quick Game Mode)</Text>
+            <Text style={styles.iosCardDesc}>
+              Need to watch a rewarded ad in a game or temporarily bypass DNS filtering for any app? Pause protection with an automatic resume timer:
+            </Text>
+
+            {snoozeSeconds > 0 ? (
+              <TouchableOpacity
+                style={styles.iosResumeButton}
+                onPress={cancelSnooze}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.iosResumeButtonText}>
+                  🛡️ Resume All-App Protection Now ({formatSnoozeTime(snoozeSeconds)})
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.iosChipRow}>
+                {[60, 120, 300].map((sec) => (
+                  <TouchableOpacity
+                    key={sec}
+                    style={[styles.iosChip, !isRunning && { opacity: 0.5 }]}
+                    disabled={!isRunning}
+                    onPress={() => {
+                      if (trialExpired) {
+                        setPaywallReason('Quick Game Mode temporary bypass is a Lifetime Pro feature.');
+                        setPaywallVisible(true);
+                        return;
+                      }
+                      snoozeVpn(sec);
+                    }}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={styles.iosChipText}>⚡ {sec / 60} Min</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+
+          <View style={styles.iosNoteCard}>
+            <Text style={styles.iosNoteTitle}>ℹ️ What DNS Blocking Covers vs. In-Feed Ads</Text>
+            <Text style={styles.iosNoteText}>
+              • Blocks third-party ad networks, analytics, trackers, and popup servers across apps (such as streaming players & browsers).{'\n'}
+              • Tip: In Settings &gt; DNS, make sure "Aegis Secure DNS (Default)" is selected (Cloudflare 1.1.1.1 and Google 8.8.8.8 do not block ads).{'\n'}
+              • First-party ads served from the exact same domain as content (such as YouTube video streams on googlevideo.com or Yahoo Mail native inbox promos) cannot be blocked via DNS alone without breaking playback or mail delivery.
+            </Text>
+          </View>
+        </ScrollView>
+
+        <LifetimePaywallModal
+          visible={paywallVisible}
+          onClose={() => setPaywallVisible(false)}
+          reason={paywallReason}
+        />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -1107,5 +1216,91 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  iosInfoCard: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+  },
+  iosInfoTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#065F46',
+    marginBottom: 6,
+  },
+  iosInfoText: {
+    fontSize: 13,
+    color: '#047857',
+    lineHeight: 19,
+  },
+  iosCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+  },
+  iosCardTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 6,
+  },
+  iosCardDesc: {
+    fontSize: 13,
+    color: '#4B5563',
+    lineHeight: 19,
+    marginBottom: 12,
+  },
+  iosChipRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  iosChip: {
+    flex: 1,
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  iosChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#B45309',
+  },
+  iosResumeButton: {
+    backgroundColor: '#10B981',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  iosResumeButtonText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  iosNoteCard: {
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: 12,
+    padding: 14,
+  },
+  iosNoteTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#1E40AF',
+    marginBottom: 6,
+  },
+  iosNoteText: {
+    fontSize: 12.5,
+    color: '#1E3A8A',
+    lineHeight: 19,
   },
 });

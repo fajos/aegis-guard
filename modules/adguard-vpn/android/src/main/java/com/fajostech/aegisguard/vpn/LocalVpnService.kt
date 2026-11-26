@@ -31,6 +31,7 @@ class LocalVpnService : VpnService() {
         private const val TAG = "LocalVpnService"
         const val ACTION_START = "com.fajostech.aegisguard.ACTION_START"
         const val ACTION_STOP = "com.fajostech.aegisguard.ACTION_STOP"
+        const val ACTION_RECONFIGURE = "com.fajostech.aegisguard.ACTION_RECONFIGURE"
         private const val NOTIFICATION_CHANNEL_ID = "adguard_vpn_channel"
         private const val NOTIFICATION_ID = 1001
 
@@ -61,6 +62,9 @@ class LocalVpnService : VpnService() {
             ACTION_START -> {
                 startVpn()
             }
+            ACTION_RECONFIGURE -> {
+                reconfigureVpn()
+            }
             ACTION_STOP -> {
                 stopVpn()
             }
@@ -85,6 +89,19 @@ class LocalVpnService : VpnService() {
             Log.w(TAG, "Could not initialize filter defaults", e)
         }
 
+        establishTunInterface()
+    }
+
+    private fun reconfigureVpn() {
+        if (!isServiceRunning) {
+            return
+        }
+        Log.i(TAG, "Reconfiguring VPN TUN interface with updated app exclusions & DNS settings")
+        tearDownTunInterface()
+        establishTunInterface()
+    }
+
+    private fun establishTunInterface() {
         try {
             val builder = Builder()
 
@@ -133,7 +150,7 @@ class LocalVpnService : VpnService() {
             val pfd = builder.establish()
             if (pfd == null) {
                 Log.e(TAG, "Failed to establish TUN interface")
-                stopSelf()
+                stopVpn()
                 return
             }
             vpnInterface = pfd
@@ -169,6 +186,26 @@ class LocalVpnService : VpnService() {
         }
     }
 
+    private fun tearDownTunInterface() {
+        networkCallback?.let {
+            try { connectivityManager.unregisterNetworkCallback(it) } catch (e: Exception) {}
+            networkCallback = null
+        }
+
+        packetRouter?.stop()
+        packetRouter = null
+
+        routerThread?.interrupt()
+        routerThread = null
+
+        try {
+            vpnInterface?.close()
+        } catch (e: IOException) {
+            Log.e(TAG, "Error closing VPN interface", e)
+        }
+        vpnInterface = null
+    }
+
     private fun registerNetworkCallback() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             val request = NetworkRequest.Builder()
@@ -201,24 +238,7 @@ class LocalVpnService : VpnService() {
     private fun stopVpn() {
         Log.i(TAG, "Stopping VPN service")
         isServiceRunning = false
-
-        networkCallback?.let {
-            try { connectivityManager.unregisterNetworkCallback(it) } catch (e: Exception) {}
-            networkCallback = null
-        }
-
-        packetRouter?.stop()
-        packetRouter = null
-
-        routerThread?.interrupt()
-        routerThread = null
-
-        try {
-            vpnInterface?.close()
-        } catch (e: IOException) {
-            Log.e(TAG, "Error closing VPN interface", e)
-        }
-        vpnInterface = null
+        tearDownTunInterface()
 
         // Stop watchdog
         try {

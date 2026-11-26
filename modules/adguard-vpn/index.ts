@@ -71,6 +71,7 @@ export interface AdGuardVpnInterface {
   updateFilterSubscriptions(): Promise<number>;
   getInstalledApps(): Promise<AppManagementInfo[]>;
   setAppBypass(packageName: string, bypass: boolean): Promise<boolean>;
+  setAppsBypassBatch?(packageNames: string[], bypass: boolean): Promise<boolean>;
   getQueryLogs(): Promise<QueryLogRecord[]>;
   clearQueryLogs(): Promise<boolean>;
   getDnsSettings(): Promise<DnsConfiguration>;
@@ -572,8 +573,8 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
   ];
 
   private dnsConfig: DnsConfiguration = {
-    upstreamDnsServers: ['1.1.1.1', '1.0.0.1'],
-    blockingMode: 'NXDOMAIN',
+    upstreamDnsServers: ['94.140.14.14', '94.140.15.15'],
+    blockingMode: 'ADDRESS',
     virtualDnsServer: '172.16.0.1',
   };
 
@@ -1153,6 +1154,21 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
       return true;
     }
     return false;
+  }
+
+  async setAppsBypassBatch(packageNames: string[], bypass: boolean): Promise<boolean> {
+    await this.ensureInitialized();
+    const target = new Set(packageNames);
+    for (const app of this.apps) {
+      if (target.has(app.packageName)) {
+        app.isVpnBypassed = bypass;
+        app.isFiltered = !bypass;
+      }
+    }
+    AsyncStorage.setItem(STORAGE_KEYS.APPS, JSON.stringify(this.apps)).catch(() => {});
+    const activeDomains = this.getActiveExcludedDomains();
+    await this.setExcludedDomains(activeDomains);
+    return true;
   }
 
   async getQueryLogs(): Promise<QueryLogRecord[]> {

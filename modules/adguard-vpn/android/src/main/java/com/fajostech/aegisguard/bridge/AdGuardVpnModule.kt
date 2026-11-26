@@ -298,6 +298,18 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
     @ReactMethod
     fun setAppBypass(packageName: String, bypass: Boolean, promise: Promise) {
         appManager.setAppBypass(packageName, bypass)
+        reconfigureVpnIfRunning()
+        promise.resolve(true)
+    }
+
+    @ReactMethod
+    fun setAppsBypassBatch(packageNames: ReadableArray, bypass: Boolean, promise: Promise) {
+        val packages = mutableListOf<String>()
+        for (i in 0 until packageNames.size()) {
+            packageNames.getString(i)?.let { packages.add(it) }
+        }
+        appManager.setAppsBypassBatch(packages, bypass)
+        reconfigureVpnIfRunning()
         promise.resolve(true)
     }
 
@@ -363,6 +375,7 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
             .putString("blocking_mode", mode.name)
             .apply()
 
+        reconfigureVpnIfRunning()
         promise.resolve(true)
     }
 
@@ -436,6 +449,15 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
             action = LocalVpnService.ACTION_START
         }
         reactContext.startForegroundService(intent)
+    }
+
+    private fun reconfigureVpnIfRunning() {
+        if (LocalVpnService.isServiceRunning) {
+            val intent = Intent(reactContext, LocalVpnService::class.java).apply {
+                action = LocalVpnService.ACTION_RECONFIGURE
+            }
+            reactContext.startService(intent)
+        }
     }
 
     private fun sendEvent(eventName: String, params: WritableMap) {
