@@ -1550,6 +1550,12 @@ export const AdGuardVpn: AdGuardVpnInterface = new Proxy(
   }
 );
 
-export const vpnEventEmitter: NativeEventEmitter = resolvedNativeModule
-  ? new NativeEventEmitter(resolvedNativeModule)
-  : (fallbackEmitter as unknown as NativeEventEmitter);
+export type VpnEventMap = {
+  onQueriesLogged: [entries: QueryLogRecord[]];
+  onQueryLogged: [log: QueryLogRecord];
+  onVpnStateChanged: [state: { isRunning: boolean }];
+};
+
+export const vpnEventEmitter: NativeEventEmitter<VpnEventMap> = resolvedNativeModule
+  ? new NativeEventEmitter<VpnEventMap>(resolvedNativeModule)
+  : (fallbackEmitter as unknown as NativeEventEmitter<VpnEventMap>);

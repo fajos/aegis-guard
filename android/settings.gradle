@@ -31,15 +31,7 @@ extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
 }
 expoAutolinking.useExpoModules()
 
-dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
-    repositories {
-        google()
-        mavenCentral()
-    }
-}
-
-rootProject.name = 'Aegis Guard'
+rootProject.name = 'AegisGuard Ad & DNS Blocker'
 
 expoAutolinking.useExpoVersionCatalog()
 

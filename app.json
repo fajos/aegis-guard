@@ -6,11 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#030B20"
-    },
     "runtimeVersion": "1.0.0",
     "updates": {
       "url": "https://u.expo.dev/28b53352-a193-4249-a3d1-c48bff8492e5",
@@ -60,7 +55,16 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "./plugins/withAdguardVpn"
+      "./plugins/withAdguardVpn",
+      "expo-status-bar",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#030B20"
+        }
+      ]
     ],
     "extra": {
       "eas": {
