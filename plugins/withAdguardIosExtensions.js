@@ -2621,6 +2621,38 @@ function ensureExtensionTarget(proj, options) {
   }
 }
 
+const TUN2SOCKSKIT_PODSPEC = `Pod::Spec.new do |s|
+  s.name             = 'Tun2SocksKit'
+  s.version          = '5.20.0'
+  s.summary          = 'Wrapper for hev-socks5-tunnel.'
+  s.homepage         = 'https://github.com/EbrahimTahernejad/Tun2SocksKit'
+  s.license          = { :type => 'MIT', :file => 'LICENSE' }
+  s.author           = { 'Ebrahim Tahernejad' => 'ebrahimtahernejad@gmail.com' }
+  s.source           = { :http => 'https://github.com/EbrahimTahernejad/Tun2SocksKit/releases/download/5.20.0/CocoapodsSource.zip' }
+  s.static_framework = true
+
+  s.ios.deployment_target = '12.0'
+  s.osx.deployment_target = '12.0'
+  s.requires_arc = true
+  s.swift_versions = ['5.7', '5.8', '5.9']
+
+  s.default_subspec = 'Core'
+
+  s.subspec 'HevSocks5Tunnel' do |hs|
+    hs.vendored_frameworks = 'HevSocks5Tunnel.xcframework'
+  end
+
+  s.subspec 'Core' do |ss|
+    ss.source_files  = 'Sources/Tun2SocksKit/**/*.{swift,h}'
+    ss.public_header_files = 'Sources/Tun2SocksKit/Tun2SocksKitC.h'
+    ss.dependency 'Tun2SocksKit/HevSocks5Tunnel'
+    ss.pod_target_xcconfig = {
+      'DEFINES_MODULE' => 'YES'
+    }
+  end
+end
+`;
+
 function withAdguardIosFiles(config) {
   if (!withDangerousMod) return config;
   return withDangerousMod(config, [
@@ -2632,6 +2664,7 @@ function withAdguardIosFiles(config) {
       if (fs.existsSync(appDir)) {
         fs.writeFileSync(path.join(appDir, 'AegisShortcuts.swift'), SHORTCUTS_SWIFT);
       }
+      fs.writeFileSync(path.join(iosDir, 'Tun2SocksKit.podspec'), TUN2SOCKSKIT_PODSPEC);
       writeExtensionFiles(iosDir);
       return config;
     },
@@ -2641,6 +2674,11 @@ function withAdguardIosFiles(config) {
 function withAdguardIosPodfile(config) {
   if (!withPodfile) return config;
   return withPodfile(config, (config) => {
+    const podfileDir = config.modResults.path ? path.dirname(config.modResults.path) : path.join(config.modRequest.platformProjectRoot || '');
+    if (podfileDir && fs.existsSync(podfileDir)) {
+      fs.writeFileSync(path.join(podfileDir, 'Tun2SocksKit.podspec'), TUN2SOCKSKIT_PODSPEC);
+    }
+
     let contents = config.modResults.contents || '';
     const blockRegex = /\n?# >>> AegisPacketTunnel Tun2SocksKit begin[\s\S]*?# <<< AegisPacketTunnel Tun2SocksKit end\n?/g;
     contents = contents.replace(blockRegex, '').trimEnd();
@@ -2649,7 +2687,7 @@ function withAdguardIosPodfile(config) {
       '# >>> AegisPacketTunnel Tun2SocksKit begin',
       `target '${TUNNEL_TARGET}' do`,
       '  use_frameworks! :linkage => :static',
-      "  pod 'Tun2SocksKit', '5.20.0'",
+      "  pod 'Tun2SocksKit', :podspec => File.join(__dir__, 'Tun2SocksKit.podspec')",
       'end',
       '# <<< AegisPacketTunnel Tun2SocksKit end',
     ].join('\n');
