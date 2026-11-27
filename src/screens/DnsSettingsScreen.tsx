@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AdGuardVpn } from '../native/AdGuardVpnModule';
@@ -77,6 +78,7 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
   const [isBenchmarking, setIsBenchmarking] = useState(false);
   const [privateProvider, setPrivateProvider] = useState<PrivateDnsProviderType>('nextdns');
   const [privateInput, setPrivateInput] = useState('');
+  const [iosDnsMode, setIosDnsModeState] = useState<'tunnel' | 'native'>('tunnel');
 
   const handleRunSpeedTest = async () => {
     setIsBenchmarking(true);
@@ -115,6 +117,10 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
           setSelectedServers(servers);
           setBlockingMode(mode);
         }
+        if (Platform.OS === 'ios' && typeof AdGuardVpn.getIosDnsMode === 'function') {
+          const mode = await AdGuardVpn.getIosDnsMode();
+          setIosDnsModeState(mode);
+        }
       } catch (e) {
         console.error(e);
       }
@@ -122,6 +128,24 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
   }, []);
 
   const FREE_BASIC_PRESETS = ['Cloudflare DNS', 'Google Public DNS', 'Quad9 DNS'];
+
+  const handleSwitchIosMode = async (nextMode: 'tunnel' | 'native') => {
+    if (nextMode === iosDnsMode) return;
+    try {
+      setIosDnsModeState(nextMode);
+      if (typeof AdGuardVpn.setIosDnsMode === 'function') {
+        await AdGuardVpn.setIosDnsMode(nextMode);
+      }
+      Alert.alert(
+        nextMode === 'native' ? 'Native iOS DNS Enabled' : 'Local VPN Tunnel Enabled',
+        nextMode === 'native'
+          ? 'Switched to Apple Native DoH ("Restrictions & Proxy"). Ensure Aegis Guard is selected under iOS Settings > General > VPN & Device Management > DNS. Note: Category Blockers & Live Logs require Local VPN Tunnel mode.'
+          : 'Switched to Local VPN Tunnel (AegisPacketTunnel) with live Query Logs, Privacy Insights, Custom Rules, Category Blockers & Threat Alerts.'
+      );
+    } catch (e: any) {
+      Alert.alert('Switch Failed', e?.message || 'Could not change iOS DNS mode');
+    }
+  };
 
   const handleSelectPreset = async (preset: PresetServer) => {
     if (trialExpired && !FREE_BASIC_PRESETS.includes(preset.name)) {
@@ -242,6 +266,46 @@ export const DnsSettingsScreen: React.FC<DnsSettingsScreenProps> = ({ isNested =
               Control upstream recursive resolvers and blocking response modes.
             </Text>
           </>
+        )}
+
+        {/* iOS Implementation Mode Switcher */}
+        {Platform.OS === 'ios' && (
+          <View style={styles.privateCard}>
+            <Text style={styles.privateTitle}>⚙️ iOS Filtering Engine</Text>
+            <Text style={styles.privateSubtitle}>
+              {iosDnsMode === 'tunnel'
+                ? 'Local VPN Tunnel: Full logs, Category Blockers, Custom Rules & Threat Alerts.'
+                : 'Native iOS DNS ("Restrictions & Proxy"): Strongest anti-leak system DoH with zero VPN slot.'}
+            </Text>
+            <View style={styles.privateTabsRow}>
+              <TouchableOpacity
+                style={[styles.privateTab, iosDnsMode === 'tunnel' && styles.privateTabActive]}
+                onPress={() => handleSwitchIosMode('tunnel')}
+              >
+                <Text
+                  style={[
+                    styles.privateTabText,
+                    iosDnsMode === 'tunnel' && styles.privateTabTextActive,
+                  ]}
+                >
+                  🛡️ Local VPN Tunnel
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.privateTab, iosDnsMode === 'native' && styles.privateTabActive]}
+                onPress={() => handleSwitchIosMode('native')}
+              >
+                <Text
+                  style={[
+                    styles.privateTabText,
+                    iosDnsMode === 'native' && styles.privateTabTextActive,
+                  ]}
+                >
+                  🔒 Native iOS DNS
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         )}
 
         {/* Selected Upstream Servers */}

@@ -53,13 +53,23 @@ export function useAdGuardVpn(isActive: boolean = true) {
   const refreshState = useCallback(async () => {
     try {
       if (!AdGuardVpn) return;
-      const running = await AdGuardVpn.isRunning();
+      const [running, s, logs] = await Promise.all([
+        AdGuardVpn.isRunning(),
+        AdGuardVpn.getStatistics(),
+        typeof AdGuardVpn.getQueryLogs === 'function'
+          ? AdGuardVpn.getQueryLogs().catch(() => [])
+          : Promise.resolve([]),
+      ]);
       cachedIsRunning = running;
       setIsRunning(running);
-      const s = await AdGuardVpn.getStatistics();
       if (s) {
         cachedStats = s;
         setStats(s);
+      }
+      if (Array.isArray(logs) && logs.length > 0) {
+        const sliced = logs.slice(0, 80);
+        cachedRecentLogs = sliced;
+        setRecentLogs(sliced);
       }
     } catch (e) {
       console.error('[useAdGuardVpn] refresh error:', e);

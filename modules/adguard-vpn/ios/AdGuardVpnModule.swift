@@ -16,6 +16,10 @@ public class AdGuardVpnModule: Module {
     return UserDefaults(suiteName: appGroupId) ?? UserDefaults.standard
   }
 
+  private var iosDnsMode: String {
+    return sharedDefaults.string(forKey: "aegis_ios_dns_mode") ?? "tunnel"
+  }
+
   private let criticalAdDomains: [String] = [
     "googleads.g.doubleclick.net",
     "pubads.g.doubleclick.net",
@@ -179,11 +183,62 @@ public class AdGuardVpnModule: Module {
     }
   }
 
-  private func clearLegacyDnsProfileIfNeeded() {
+  private func clearLegacyDnsProfileIfNeeded(completion: (() -> Void)? = nil) {
     let dnsManager = NEDNSSettingsManager.shared()
     dnsManager.loadFromPreferences { error in
-      guard error == nil, dnsManager.dnsSettings != nil else { return }
-      dnsManager.removeFromPreferences { _ in }
+      guard error == nil, dnsManager.dnsSettings != nil else {
+        completion?()
+        return
+      }
+      dnsManager.removeFromPreferences { _ in
+        completion?()
+      }
+    }
+  }
+
+  private func stopTunnelIfActive(completion: (() -> Void)? = nil) {
+    findTunnelManager { manager, _ in
+      guard let manager = manager else {
+        completion?()
+        return
+      }
+      manager.isOnDemandEnabled = false
+      manager.saveToPreferences { _ in
+        manager.connection.stopVPNTunnel()
+        completion?()
+      }
+    }
+  }
+
+  private func applyNativeDnsManager(enable: Bool, completion: @escaping (Bool, String?) -> Void) {
+    let config = self.getDnsConfiguration()
+    let dnsManager = NEDNSSettingsManager.shared()
+    dnsManager.loadFromPreferences { loadError in
+      if let err = loadError {
+        completion(false, err.localizedDescription)
+        return
+      }
+      let dohSettings = NEDNSOverHTTPSSettings(servers: config.servers)
+      dohSettings.serverURL = URL(string: config.dohURL)
+      dnsManager.localizedDescription = config.description
+      dnsManager.dnsSettings = dohSettings
+      if enable {
+        dnsManager.onDemandRules = nil
+      } else {
+        let disconnectRule = NEOnDemandRuleDisconnect()
+        disconnectRule.interfaceTypeMatch = .any
+        dnsManager.onDemandRules = [disconnectRule]
+      }
+      dnsManager.saveToPreferences { saveError in
+        if let err = saveError {
+          completion(false, err.localizedDescription)
+        } else {
+          let active = enable && dnsManager.isEnabled
+          self.syncWidgetState(isRunning: active, activeProfileName: config.description)
+          self.sendEvent("onVpnStateChanged", ["isRunning": active])
+          completion(active, nil)
+        }
+      }
     }
   }
 
@@ -198,7 +253,7 @@ public class AdGuardVpnModule: Module {
         object: nil,
         queue: .main
       ) { [weak self] notification in
-        guard let self = self else { return }
+        guard let self = self, self.iosDnsMode != "native" else { return }
         if let conn = notification.object as? NEVPNConnection {
           let active = conn.status == .connected || conn.status == .connecting
           self.syncWidgetState(isRunning: active)
@@ -214,7 +269,75 @@ public class AdGuardVpnModule: Module {
       }
     }
 
+    AsyncFunction("getIosDnsMode") { (promise: Promise) in
+      promise.resolve(self.iosDnsMode)
+    }
+
+    AsyncFunction("setIosDnsMode") { (mode: String, promise: Promise) in
+      let normalized = (mode == "native") ? "native" : "tunnel"
+      let prevMode = self.iosDnsMode
+      self.sharedDefaults.set(normalized, forKey: "aegis_ios_dns_mode")
+      self.sharedDefaults.synchronize()
+
+      if normalized == prevMode {
+        promise.resolve(true)
+        return
+      }
+
+      if normalized == "native" {
+        self.stopTunnelIfActive {
+          self.applyNativeDnsManager(enable: true) { _, _ in
+            promise.resolve(true)
+          }
+        }
+      } else {
+        self.clearLegacyDnsProfileIfNeeded {
+          self.findTunnelManager { manager, _ in
+            guard let manager = manager else {
+              promise.resolve(true)
+              return
+            }
+            let config = self.getDnsConfiguration()
+            let proto = (manager.protocolConfiguration as? NETunnelProviderProtocol) ?? NETunnelProviderProtocol()
+            proto.providerBundleIdentifier = self.tunnelBundleId
+            proto.serverAddress = "198.18.0.1"
+            proto.providerConfiguration = ["appGroup": self.appGroupId]
+            manager.protocolConfiguration = proto
+            manager.localizedDescription = config.description
+            manager.isEnabled = true
+            let connectRule = NEOnDemandRuleConnect()
+            connectRule.interfaceTypeMatch = .any
+            manager.onDemandRules = [connectRule]
+            manager.isOnDemandEnabled = true
+            manager.saveToPreferences { _ in
+              manager.loadFromPreferences { _ in
+                try? manager.connection.startVPNTunnel()
+                self.syncWidgetState(isRunning: true, activeProfileName: config.description)
+                self.sendEvent("onVpnStateChanged", ["isRunning": true])
+                promise.resolve(true)
+              }
+            }
+          }
+        }
+      }
+    }
+
     AsyncFunction("isRunning") { (promise: Promise) in
+      if self.iosDnsMode == "native" {
+        let dnsManager = NEDNSSettingsManager.shared()
+        dnsManager.loadFromPreferences { error in
+          if error != nil || !dnsManager.isEnabled {
+            self.syncWidgetState(isRunning: false)
+            promise.resolve(false)
+          } else {
+            let isPaused = dnsManager.onDemandRules?.first is NEOnDemandRuleDisconnect
+            self.syncWidgetState(isRunning: !isPaused)
+            promise.resolve(!isPaused)
+          }
+        }
+        return
+      }
+
       self.findTunnelManager { manager, error in
         if let error = error {
           promise.resolve(false)
@@ -233,6 +356,19 @@ public class AdGuardVpnModule: Module {
     }
 
     AsyncFunction("startVpn") { (promise: Promise) in
+      if self.iosDnsMode == "native" {
+        self.stopTunnelIfActive {
+          self.applyNativeDnsManager(enable: true) { active, errMsg in
+            if let errMsg = errMsg {
+              promise.reject("SAVE_ERROR", errMsg)
+            } else {
+              promise.resolve(active)
+            }
+          }
+        }
+        return
+      }
+
       self.clearLegacyDnsProfileIfNeeded()
       let config = self.getDnsConfiguration()
 
@@ -284,6 +420,13 @@ public class AdGuardVpnModule: Module {
     }
 
     AsyncFunction("stopVpn") { (promise: Promise) in
+      if self.iosDnsMode == "native" {
+        self.applyNativeDnsManager(enable: false) { _, _ in
+          promise.resolve(true)
+        }
+        return
+      }
+
       self.findTunnelManager { manager, _ in
         guard let manager = manager else {
           self.syncWidgetState(isRunning: false)
@@ -395,6 +538,13 @@ public class AdGuardVpnModule: Module {
       self.syncWidgetState(activeProfileName: config.description)
       self.notifyTunnel("reload")
 
+      if self.iosDnsMode == "native" {
+        self.applyNativeDnsManager(enable: true) { _, _ in
+          promise.resolve(true)
+        }
+        return
+      }
+
       self.findTunnelManager { manager, _ in
         if let manager = manager {
           manager.localizedDescription = config.description
@@ -500,6 +650,12 @@ public class AdGuardVpnModule: Module {
       let config = self.getDnsConfiguration()
       self.syncWidgetState(activeProfileName: config.description)
       self.notifyTunnel("reload")
+      if self.iosDnsMode == "native" {
+        self.applyNativeDnsManager(enable: true) { _, _ in
+          promise.resolve(true)
+        }
+        return
+      }
       promise.resolve(true)
     }
 
@@ -516,6 +672,12 @@ public class AdGuardVpnModule: Module {
       UserDefaults.standard.set(isPremium, forKey: "aegis_is_premium")
       self.sharedDefaults.synchronize()
       self.notifyTunnel("reload")
+      if self.iosDnsMode == "native" {
+        self.applyNativeDnsManager(enable: true) { _, _ in
+          promise.resolve(true)
+        }
+        return
+      }
       promise.resolve(true)
     }
 
@@ -599,6 +761,13 @@ public class AdGuardVpnModule: Module {
     }
 
     AsyncFunction("isDnsProfileInstalled") { (promise: Promise) in
+      if self.iosDnsMode == "native" {
+        let dnsManager = NEDNSSettingsManager.shared()
+        dnsManager.loadFromPreferences { error in
+          promise.resolve(error == nil && dnsManager.isEnabled)
+        }
+        return
+      }
       self.findTunnelManager { manager, error in
         promise.resolve(error == nil && manager?.isEnabled == true)
       }

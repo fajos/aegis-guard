@@ -260,13 +260,16 @@ struct EnableAegisShieldIntent: AppIntent {
     static var description = IntentDescription("Activates system-wide local VPN & encrypted DNS ad & tracker protection.")
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let managers = try await NETunnelProviderManager.loadAllFromPreferences()
-        if let manager = managers.first {
-            manager.isEnabled = true
-            try await manager.saveToPreferences()
-            try await manager.loadFromPreferences()
-            try manager.connection.startVPNTunnel()
-            return .result(dialog: "Aegis Guard local VPN protection is now enabled.")
+        let mode = UserDefaults(suiteName: "${APP_GROUP}")?.string(forKey: "aegis_ios_dns_mode") ?? "tunnel"
+        if mode != "native" {
+            let managers = try await NETunnelProviderManager.loadAllFromPreferences()
+            if let manager = managers.first {
+                manager.isEnabled = true
+                try await manager.saveToPreferences()
+                try await manager.loadFromPreferences()
+                try manager.connection.startVPNTunnel()
+                return .result(dialog: "Aegis Guard local VPN protection is now enabled.")
+            }
         }
 
         let dnsManager = NEDNSSettingsManager.shared()
@@ -283,10 +286,13 @@ struct PauseAegisShieldIntent: AppIntent {
     static var description = IntentDescription("Temporarily suspends local VPN DNS filtering so game rewarded ads can load.")
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let managers = try await NETunnelProviderManager.loadAllFromPreferences()
-        if let manager = managers.first {
-            manager.connection.stopVPNTunnel()
-            return .result(dialog: "Aegis Guard local VPN protection has been paused.")
+        let mode = UserDefaults(suiteName: "${APP_GROUP}")?.string(forKey: "aegis_ios_dns_mode") ?? "tunnel"
+        if mode != "native" {
+            let managers = try await NETunnelProviderManager.loadAllFromPreferences()
+            if let manager = managers.first {
+                manager.connection.stopVPNTunnel()
+                return .result(dialog: "Aegis Guard local VPN protection has been paused.")
+            }
         }
 
         let dnsManager = NEDNSSettingsManager.shared()
@@ -380,18 +386,31 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     private let builtInAdDomains: Set<String> = [
         "doubleclick.net",
+        "ad.doubleclick.net",
+        "stats.g.doubleclick.net",
+        "cm.g.doubleclick.net",
         "googleads.g.doubleclick.net",
         "pubads.g.doubleclick.net",
+        "pagead.l.doubleclick.net",
         "pagead2.googlesyndication.com",
+        "tpc.googlesyndication.com",
         "googlesyndication.com",
         "googleadservices.com",
         "adservice.google.com",
+        "adtrafficquality.google",
+        "ep1.adtrafficquality.google",
+        "ep2.adtrafficquality.google",
+        "fundingchoicesmessages.google.com",
         "app-measurement.com",
         "google-analytics.com",
         "googletagmanager.com",
         "admob.com",
-        "adserver.yahoo.com",
+        "iadsdk.apple.com",
+        "iadcontent.apple.com",
+        "ads.facebook.com",
+        "an.facebook.com",
         "ads.yahoo.com",
+        "adserver.yahoo.com",
         "m.yap.yahoo.com",
         "gemini.yahoo.com",
         "b.gemini.yahoo.com",
@@ -403,6 +422,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         "sp.analytics.yahoo.com",
         "cmp.yahoo.com",
         "yads.zedo.com",
+        "yads.c.oath.com",
         "taboola.com",
         "outbrain.com",
         "criteo.com",
@@ -412,6 +432,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         "rubiconproject.com",
         "openx.net",
         "amazon-adsystem.com",
+        "moatads.com",
         "scorecardresearch.com",
         "quantserve.com",
         "ads.tiktok.com",
@@ -419,20 +440,35 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         "pixel.facebook.com",
         "applovin.com",
         "al-sdk.applovin.com",
+        "applvr.com",
         "vungle.com",
         "unityads.unity3d.com",
         "ironsrc.com",
+        "supersonicads.com",
+        "supersonic.com",
         "mintegral.com",
+        "rayjump.com",
         "chartboost.com",
         "inmobi.com",
         "tapjoy.com",
+        "tapjoyads.com",
+        "fyber.com",
+        "smaato.net",
+        "adcolony.com",
+        "mopub.com",
+        "startappservice.com",
+        "startapp.com",
+        "pangle.io",
+        "bidmachine.io",
         "coinhive.com",
         "crypto-loot.com",
         "appsflyer.com",
         "adjust.com",
+        "adjust.io",
         "branch.io",
         "mixpanel.com",
-        "amplitude.com"
+        "amplitude.com",
+        "flurry.com"
     ]
 
     private let phishingTokens: [String] = [
@@ -1020,16 +1056,62 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
+    private func skipDnsName(in bytes: [UInt8], from offset: Int) -> Int? {
+        var idx = offset
+        var steps = 0
+        while idx < bytes.count && steps < 128 {
+            steps += 1
+            let len = bytes[idx]
+            if len == 0 {
+                return idx + 1
+            }
+            if (len & 0xC0) == 0xC0 {
+                return idx + 2 <= bytes.count ? idx + 2 : nil
+            }
+            idx += 1 + Int(len)
+        }
+        return nil
+    }
+
     private func didUpstreamBlock(_ dnsResp: Data) -> Bool {
         let bytes = [UInt8](dnsResp)
         guard bytes.count >= 12 else { return false }
         let rcode = bytes[3] & 0x0F
         if rcode == 3 || rcode == 5 { return true }
-        let anCount = (UInt16(bytes[6]) << 8) | UInt16(bytes[7])
+
+        let qdCount = Int((UInt16(bytes[4]) << 8) | UInt16(bytes[5]))
+        let anCount = Int((UInt16(bytes[6]) << 8) | UInt16(bytes[7]))
         guard anCount > 0 else { return false }
-        // Check if trailing 4 bytes equal 0.0.0.0 for simple A sinkhole answers
-        if bytes.count >= 16 && bytes.suffix(4) == [0, 0, 0, 0] {
-            return true
+
+        var idx = 12
+        for _ in 0..<qdCount {
+            guard let nextIdx = skipDnsName(in: bytes, from: idx), nextIdx + 4 <= bytes.count else {
+                return false
+            }
+            idx = nextIdx + 4
+        }
+
+        for _ in 0..<anCount {
+            guard let afterName = skipDnsName(in: bytes, from: idx), afterName + 10 <= bytes.count else {
+                break
+            }
+            let rrType = (UInt16(bytes[afterName]) << 8) | UInt16(bytes[afterName + 1])
+            let rdLen = Int((UInt16(bytes[afterName + 8]) << 8) | UInt16(bytes[afterName + 9]))
+            let rdataStart = afterName + 10
+            guard rdataStart + rdLen <= bytes.count else { break }
+
+            // Check A = 0.0.0.0 or 127.0.0.1, AAAA = :: (all zeros)
+            if rrType == 1 && rdLen == 4 {
+                if (bytes[rdataStart] == 0 && bytes[rdataStart + 1] == 0 && bytes[rdataStart + 2] == 0 && bytes[rdataStart + 3] == 0) ||
+                   (bytes[rdataStart] == 127 && bytes[rdataStart + 1] == 0 && bytes[rdataStart + 2] == 0 && bytes[rdataStart + 3] == 1) {
+                    return true
+                }
+            } else if rrType == 28 && rdLen == 16 {
+                if bytes[rdataStart..<(rdataStart + 16)].allSatisfy({ $0 == 0 }) {
+                    return true
+                }
+            }
+            idx = rdataStart + rdLen
         }
         return false
     }

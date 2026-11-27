@@ -99,6 +99,8 @@ export interface AdGuardVpnInterface {
   setThreatAlertsEnabled?(enabled: boolean): Promise<boolean>;
   isThreatAlertsEnabled?(): Promise<boolean>;
   requestNotificationPermission?(): Promise<boolean>;
+  getIosDnsMode?(): Promise<'tunnel' | 'native'>;
+  setIosDnsMode?(mode: 'tunnel' | 'native'): Promise<boolean>;
 }
 
 export const GAMING_REWARDED_AD_DOMAINS: string[] = [
@@ -1367,6 +1369,25 @@ class FallbackVpnEngine implements AdGuardVpnInterface {
     if (resolvedNativeModule && typeof resolvedNativeModule.requestNotificationPermission === 'function') {
       try {
         return await resolvedNativeModule.requestNotificationPermission();
+      } catch {}
+    }
+    return true;
+  }
+
+  async getIosDnsMode(): Promise<'tunnel' | 'native'> {
+    if (resolvedNativeModule && typeof resolvedNativeModule.getIosDnsMode === 'function') {
+      try {
+        const mode = await resolvedNativeModule.getIosDnsMode();
+        return mode === 'native' ? 'native' : 'tunnel';
+      } catch {}
+    }
+    return 'tunnel';
+  }
+
+  async setIosDnsMode(mode: 'tunnel' | 'native'): Promise<boolean> {
+    if (resolvedNativeModule && typeof resolvedNativeModule.setIosDnsMode === 'function') {
+      try {
+        return await resolvedNativeModule.setIosDnsMode(mode);
       } catch {}
     }
     return true;
