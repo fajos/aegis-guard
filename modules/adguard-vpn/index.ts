@@ -1689,6 +1689,8 @@ export const AdGuardVpn: AdGuardVpnInterface = new Proxy(
               fallbackEngine.setLicenseState(args[0]).catch(() => {});
             } else if (prop === 'setExcludedDomains') {
               fallbackEngine.setExcludedDomains(args[0]).catch(() => {});
+            } else if (prop === 'addCustomApp') {
+              fallbackEngine.addCustomApp(args[0], args[1]).catch(() => {});
             } else if (prop === 'setDnsSettings') {
               fallbackEngine.setDnsSettings(args[0], args[1]).catch(() => {});
             }

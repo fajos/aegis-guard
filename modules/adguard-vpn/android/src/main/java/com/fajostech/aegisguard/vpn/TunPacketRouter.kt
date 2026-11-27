@@ -9,11 +9,13 @@ import com.fajostech.aegisguard.filter.BlockingMode
 import com.fajostech.aegisguard.filter.DnsFilterEngine
 import com.fajostech.aegisguard.log.FilteringLog
 import com.fajostech.aegisguard.log.QueryLogEntry
+import com.fajostech.aegisguard.packet.Checksum
 import com.fajostech.aegisguard.packet.IpPacket
 import com.fajostech.aegisguard.packet.UdpPacket
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.ByteBuffer
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -70,12 +72,17 @@ class TunPacketRouter(
     private fun handlePacket(data: ByteArray, length: Int, outputStream: FileOutputStream) {
         val ipPacket = IpPacket.parse(data, 0, length) ?: return
 
-        // Filter only UDP packets
+        if (ipPacket.isTcp) {
+            sendTcpResetForBlockedConnection(ipPacket, outputStream)
+            return
+        }
+
+        // Filter only UDP packets from here on
         if (!ipPacket.isUdp) return
 
         val udpPacket = UdpPacket.parse(ipPacket.payload, 0, ipPacket.payload.size) ?: return
 
-        // Check if destination is DNS port (port 53)
+        // Check if destination is DNS port (port 53); non-53 UDP (e.g. QUIC/443 to DoH resolvers) is dropped immediately
         if (udpPacket.destPort != DNS_PORT) return
 
         val dnsPayload = udpPacket.payload
@@ -93,6 +100,97 @@ class TunPacketRouter(
                 clientDstIp = clientDstIp,
                 outputStream = outputStream
             )
+        }
+    }
+
+    /**
+     * Immediately responds with TCP RST (or RST+ACK for incoming SYN) when a client attempts
+     * to open a bypassed encrypted DNS (DoH :443, DoT :853) or blocked AS13414 TCP socket
+     * routed into the TUN, preventing 5-10s handshake stalls and forcing immediate DNS fallback.
+     */
+    private fun sendTcpResetForBlockedConnection(ipPacket: IpPacket, outputStream: FileOutputStream) {
+        val tcp = ipPacket.payload
+        if (tcp.size < 20) return
+
+        val tcpHeaderLen = ((tcp[12].toInt() and 0xF0) ushr 4) * 4
+        if (tcpHeaderLen < 20 || tcp.size < tcpHeaderLen) return
+
+        val flags = tcp[13].toInt() and 0xFF
+        // Never reply to an incoming RST to prevent RST loops
+        if ((flags and 0x04) != 0) return
+
+        val clientSrcPort = ((tcp[0].toInt() and 0xFF) shl 8) or (tcp[1].toInt() and 0xFF)
+        val clientDstPort = ((tcp[2].toInt() and 0xFF) shl 8) or (tcp[3].toInt() and 0xFF)
+
+        val seqNum =
+            ((tcp[4].toLong() and 0xFFL) shl 24) or
+                ((tcp[5].toLong() and 0xFFL) shl 16) or
+                ((tcp[6].toLong() and 0xFFL) shl 8) or
+                (tcp[7].toLong() and 0xFFL)
+        val ackNum =
+            ((tcp[8].toLong() and 0xFFL) shl 24) or
+                ((tcp[9].toLong() and 0xFFL) shl 16) or
+                ((tcp[10].toLong() and 0xFFL) shl 8) or
+                (tcp[11].toLong() and 0xFFL)
+
+        val hasAck = (flags and 0x10) != 0
+        val hasSyn = (flags and 0x02) != 0
+        val hasFin = (flags and 0x01) != 0
+        val segDataLen = (tcp.size - tcpHeaderLen).toLong()
+
+        val replyFlags: Int
+        val replySeq: Long
+        val replyAck: Long
+        if (hasAck && !hasSyn) {
+            replyFlags = 0x04 // RST
+            replySeq = ackNum
+            replyAck = 0L
+        } else {
+            replyFlags = 0x14 // RST | ACK
+            replySeq = if (hasAck) ackNum else 0L
+            replyAck = (seqNum + segDataLen + (if (hasSyn) 1L else 0L) + (if (hasFin) 1L else 0L)) and 0xFFFFFFFFL
+        }
+
+        val replySrcIp = ipPacket.destIp
+        val replyDstIp = ipPacket.sourceIp
+
+        val tcpReply = ByteArray(20)
+        val buf = ByteBuffer.wrap(tcpReply)
+        buf.putShort(clientDstPort.toShort())
+        buf.putShort(clientSrcPort.toShort())
+        buf.putInt(replySeq.toInt())
+        buf.putInt(replyAck.toInt())
+        buf.put(0x50.toByte()) // Data offset = 5 (20 bytes)
+        buf.put(replyFlags.toByte())
+        buf.putShort(0.toShort()) // Window size = 0
+        buf.putShort(0.toShort()) // Placeholder checksum
+        buf.putShort(0.toShort()) // Urgent pointer
+
+        val csum = Checksum.calculateTransportChecksum(
+            srcIp = replySrcIp,
+            dstIp = replyDstIp,
+            protocol = IpPacket.PROTOCOL_TCP,
+            segment = tcpReply,
+            offset = 0,
+            length = tcpReply.size,
+            forceNonZero = false
+        )
+        buf.putShort(16, csum.toShort())
+
+        val ipReply = IpPacket.buildAuto(
+            srcIp = replySrcIp,
+            dstIp = replyDstIp,
+            protocol = IpPacket.PROTOCOL_TCP,
+            payload = tcpReply
+        )
+
+        synchronized(outputStream) {
+            try {
+                outputStream.write(ipReply)
+                outputStream.flush()
+            } catch (e: IOException) {
+                Log.e(TAG, "Error writing TCP RST to TUN", e)
+            }
         }
     }
 
@@ -205,7 +303,7 @@ class TunPacketRouter(
             dstIp = replyDstIp
         )
 
-        val ipReply = IpPacket.build(
+        val ipReply = IpPacket.buildAuto(
             srcIp = replySrcIp,
             dstIp = replyDstIp,
             protocol = IpPacket.PROTOCOL_UDP,

@@ -57,8 +57,18 @@ data class UdpPacket(
             buffer.putShort(0.toShort()) // Placeholder for checksum
             buffer.put(payload)
 
-            if (srcIp != null && dstIp != null) {
-                val csum = Checksum.calculateUdpChecksum(srcIp, dstIp, packet, 0, totalLength)
+            if (srcIp != null && dstIp != null &&
+                ((srcIp.size == 4 && dstIp.size == 4) || (srcIp.size == 16 && dstIp.size == 16))
+            ) {
+                val csum = Checksum.calculateTransportChecksum(
+                    srcIp = srcIp,
+                    dstIp = dstIp,
+                    protocol = IpPacket.PROTOCOL_UDP,
+                    segment = packet,
+                    offset = 0,
+                    length = totalLength,
+                    forceNonZero = true
+                )
                 buffer.putShort(6, csum.toShort())
             }
 

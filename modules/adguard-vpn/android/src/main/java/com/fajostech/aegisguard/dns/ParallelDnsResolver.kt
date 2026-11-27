@@ -24,6 +24,7 @@ class ParallelDnsResolver(
     private val dnsCache: DnsCache = DnsCache()
 ) {
     private val scope = CoroutineScope(Dispatchers.IO)
+    private val protectedHttpClient by lazy { DohResolver.buildProtectedClient(vpnService) }
 
     fun resolve(queryBytes: ByteArray, domain: String, qtype: Int): ByteArray? {
         // 1. Check cache first
@@ -41,7 +42,14 @@ class ParallelDnsResolver(
 
         // Filter out any virtual or loopback IPs to avoid recursive routing loops
         val validUpstreams = upstreamServers
-            .filter { it != "198.18.53.53" && it != "127.0.0.1" && it != "0.0.0.0" && it.isNotBlank() }
+            .filter {
+                it != "198.18.53.53" &&
+                    it != "fd00:198:18::53" &&
+                    it != "127.0.0.1" &&
+                    it != "::1" &&
+                    it != "0.0.0.0" &&
+                    it.isNotBlank()
+            }
             .ifEmpty { listOf("94.140.14.14", "94.140.15.15") }
 
         // 2. Race parallel upstreams with hard timeout
@@ -79,7 +87,12 @@ class ParallelDnsResolver(
     }
 
     private fun querySingleUpstream(server: String, queryBytes: ByteArray): ByteArray? {
-        if (server == "198.18.53.53" || server == "127.0.0.1" || server == "0.0.0.0") return null
+        if (server == "198.18.53.53" || server == "fd00:198:18::53" ||
+            server == "127.0.0.1" || server == "::1" || server == "0.0.0.0"
+        ) return null
+        if (server.startsWith("https://", ignoreCase = true)) {
+            return DohResolver(server, vpnService, protectedHttpClient).resolve(queryBytes)
+        }
         var socket: DatagramSocket? = null
         try {
             socket = DatagramSocket()
@@ -111,7 +124,38 @@ class ParallelDnsResolver(
     }
 
     fun measureLatency(server: String): Long {
-        if (server == "198.18.53.53" || server == "127.0.0.1" || server == "0.0.0.0" || server.isBlank()) return -1L
+        if (server == "198.18.53.53" || server == "fd00:198:18::53" ||
+            server == "127.0.0.1" || server == "::1" || server == "0.0.0.0" || server.isBlank()
+        ) return -1L
+
+        // Standard DNS query for "example.com" (IN A, TXID 0x1234)
+        val testQuery = byteArrayOf(
+            0x12, 0x34, // Transaction ID
+            0x01, 0x00, // Flags: Standard query, RD
+            0x00, 0x01, // Questions: 1
+            0x00, 0x00, // Answer RRs: 0
+            0x00, 0x00, // Authority RRs: 0
+            0x00, 0x00, // Additional RRs: 0
+            0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, // "example"
+            0x03, 0x63, 0x6f, 0x6d, // "com"
+            0x00,       // Root
+            0x00, 0x01, // Type: A
+            0x00, 0x01  // Class: IN
+        )
+
+        if (server.startsWith("https://", ignoreCase = true)) {
+            return try {
+                val startNano = System.nanoTime()
+                val resp = DohResolver(server, vpnService, protectedHttpClient).resolve(testQuery)
+                    ?: return -1L
+                if (resp.isEmpty()) return -1L
+                val elapsedMs = (System.nanoTime() - startNano) / 1_000_000L
+                if (elapsedMs < 1L) 1L else elapsedMs
+            } catch (_: Exception) {
+                -1L
+            }
+        }
+
         var socket: DatagramSocket? = null
         return try {
             socket = DatagramSocket()
@@ -121,21 +165,6 @@ class ParallelDnsResolver(
                 return -1L
             }
             socket.soTimeout = 1800
-
-            // Standard DNS query for "example.com" (IN A, TXID 0x1234)
-            val testQuery = byteArrayOf(
-                0x12, 0x34, // Transaction ID
-                0x01, 0x00, // Flags: Standard query, RD
-                0x00, 0x01, // Questions: 1
-                0x00, 0x00, // Answer RRs: 0
-                0x00, 0x00, // Authority RRs: 0
-                0x00, 0x00, // Additional RRs: 0
-                0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, // "example"
-                0x03, 0x63, 0x6f, 0x6d, // "com"
-                0x00,       // Root
-                0x00, 0x01, // Type: A
-                0x00, 0x01  // Class: IN
-            )
 
             val serverAddr = InetAddress.getByName(server)
             val outPacket = DatagramPacket(testQuery, testQuery.size, serverAddr, 53)

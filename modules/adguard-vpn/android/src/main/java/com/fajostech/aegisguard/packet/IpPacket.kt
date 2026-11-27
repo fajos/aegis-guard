@@ -4,7 +4,7 @@ import java.net.InetAddress
 import java.nio.ByteBuffer
 
 /**
- * Representation of an IPv4 Packet (RFC 791).
+ * Representation of an IPv4 (RFC 791) or IPv6 (RFC 8200) packet.
  */
 data class IpPacket(
     val version: Int,
@@ -22,6 +22,7 @@ data class IpPacket(
     val payload: ByteArray
 ) {
     val isUdp: Boolean get() = protocol == PROTOCOL_UDP
+    val isTcp: Boolean get() = protocol == PROTOCOL_TCP
 
     val sourceAddress: String get() = formatIp(sourceIp)
     val destAddress: String get() = formatIp(destIp)
@@ -32,17 +33,28 @@ data class IpPacket(
         const val PROTOCOL_UDP = 17
 
         const val MIN_IPV4_HEADER_SIZE = 20
+        const val MIN_IPV6_HEADER_SIZE = 40
 
         fun parse(data: ByteArray, offset: Int = 0, length: Int = data.size): IpPacket? {
+            if (length < 1) return null
+
+            val firstByte = data[offset].toInt() and 0xFF
+            val version = firstByte ushr 4
+
+            return when (version) {
+                4 -> parseV4(data, offset, length)
+                6 -> parseV6(data, offset, length)
+                else -> null
+            }
+        }
+
+        private fun parseV4(data: ByteArray, offset: Int, length: Int): IpPacket? {
             if (length < MIN_IPV4_HEADER_SIZE) return null
 
             val buffer = ByteBuffer.wrap(data, offset, length)
             val verIhl = buffer.get().toInt() and 0xFF
-            val version = verIhl shr 4
-            if (version != 4) return null // Only IPv4 supported in this handler
-
             val ihl = (verIhl and 0x0F) * 4
-            if (length < ihl) return null
+            if (ihl < MIN_IPV4_HEADER_SIZE || length < ihl) return null
 
             val tos = buffer.get().toInt() and 0xFF
             val totalLen = buffer.short.toInt() and 0xFFFF
@@ -65,12 +77,12 @@ data class IpPacket(
                 buffer.position(buffer.position() + (ihl - MIN_IPV4_HEADER_SIZE))
             }
 
-            val payloadLen = Math.min(totalLen - ihl, length - ihl)
+            val payloadLen = minOf(totalLen - ihl, length - ihl).coerceAtLeast(0)
             val payload = ByteArray(payloadLen)
             buffer.get(payload)
 
             return IpPacket(
-                version = version,
+                version = 4,
                 headerLength = ihl,
                 tos = tos,
                 totalLength = totalLen,
@@ -80,6 +92,54 @@ data class IpPacket(
                 ttl = ttl,
                 protocol = proto,
                 checksum = csum,
+                sourceIp = srcIp,
+                destIp = dstIp,
+                payload = payload
+            )
+        }
+
+        private fun parseV6(data: ByteArray, offset: Int, length: Int): IpPacket? {
+            if (length < MIN_IPV6_HEADER_SIZE) return null
+
+            val vtf = ((data[offset].toInt() and 0xFF) shl 8) or (data[offset + 1].toInt() and 0xFF)
+            val tc = (vtf ushr 4) and 0xFF
+            val declaredPayloadLen = ((data[offset + 4].toInt() and 0xFF) shl 8) or (data[offset + 5].toInt() and 0xFF)
+            var nextHeader = data[offset + 6].toInt() and 0xFF
+            val hopLimit = data[offset + 7].toInt() and 0xFF
+
+            val srcIp = ByteArray(16)
+            val dstIp = ByteArray(16)
+            System.arraycopy(data, offset + 8, srcIp, 0, 16)
+            System.arraycopy(data, offset + 24, dstIp, 0, 16)
+
+            val packetEnd = minOf(MIN_IPV6_HEADER_SIZE + declaredPayloadLen, length)
+            if (packetEnd < MIN_IPV6_HEADER_SIZE) return null
+
+            var headerCursor = MIN_IPV6_HEADER_SIZE
+            while (nextHeader == 0 || nextHeader == 43 || nextHeader == 60) {
+                if (headerCursor + 2 > packetEnd) return null
+                val extNext = data[offset + headerCursor].toInt() and 0xFF
+                val extLen = ((data[offset + headerCursor + 1].toInt() and 0xFF) + 1) * 8
+                if (extLen <= 0 || headerCursor + extLen > packetEnd) return null
+                nextHeader = extNext
+                headerCursor += extLen
+            }
+
+            val payloadLen = (packetEnd - headerCursor).coerceAtLeast(0)
+            val payload = ByteArray(payloadLen)
+            System.arraycopy(data, offset + headerCursor, payload, 0, payloadLen)
+
+            return IpPacket(
+                version = 6,
+                headerLength = headerCursor,
+                tos = tc,
+                totalLength = headerCursor + payloadLen,
+                identification = 0,
+                flags = 0,
+                fragmentOffset = 0,
+                ttl = hopLimit,
+                protocol = nextHeader,
+                checksum = 0,
                 sourceIp = srcIp,
                 destIp = dstIp,
                 payload = payload
@@ -122,8 +182,55 @@ data class IpPacket(
             return packet
         }
 
+        /**
+         * Builds an IPv6 packet wrapping the given upper-layer payload.
+         */
+        fun buildV6(
+            srcIp: ByteArray,
+            dstIp: ByteArray,
+            protocol: Int,
+            payload: ByteArray,
+            hopLimit: Int = 64
+        ): ByteArray {
+            val totalLength = MIN_IPV6_HEADER_SIZE + payload.size
+            val packet = ByteArray(totalLength)
+            val buffer = ByteBuffer.wrap(packet)
+
+            buffer.putInt(6 shl 28) // Version 6, TC=0, Flow=0
+            buffer.putShort(payload.size.toShort())
+            buffer.put(protocol.toByte())
+            buffer.put(hopLimit.toByte())
+            buffer.put(srcIp)
+            buffer.put(dstIp)
+            buffer.put(payload)
+            return packet
+        }
+
+        /**
+         * Builds either an IPv4 or IPv6 packet based on address length.
+         */
+        fun buildAuto(
+            srcIp: ByteArray,
+            dstIp: ByteArray,
+            protocol: Int,
+            payload: ByteArray,
+            ttl: Int = 64
+        ): ByteArray = if (srcIp.size == 16 && dstIp.size == 16) {
+            buildV6(srcIp, dstIp, protocol, payload, ttl)
+        } else {
+            build(srcIp, dstIp, protocol, payload, ttl = ttl)
+        }
+
         private fun formatIp(ip: ByteArray): String {
-            return "${ip[0].toInt() and 0xFF}.${ip[1].toInt() and 0xFF}.${ip[2].toInt() and 0xFF}.${ip[3].toInt() and 0xFF}"
+            return try {
+                InetAddress.getByAddress(ip).hostAddress ?: ""
+            } catch (_: Exception) {
+                if (ip.size == 4) {
+                    "${ip[0].toInt() and 0xFF}.${ip[1].toInt() and 0xFF}.${ip[2].toInt() and 0xFF}.${ip[3].toInt() and 0xFF}"
+                } else {
+                    ""
+                }
+            }
         }
     }
 }

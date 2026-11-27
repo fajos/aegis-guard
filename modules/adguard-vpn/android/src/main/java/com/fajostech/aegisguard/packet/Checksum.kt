@@ -34,7 +34,7 @@ object Checksum {
     }
 
     /**
-     * Calculates the UDP checksum with IPv4 pseudo-header (RFC 768).
+     * Calculates the UDP checksum with IPv4/IPv6 pseudo-header (RFC 768 / RFC 8200).
      */
     fun calculateUdpChecksum(
         srcIp: ByteArray,
@@ -42,39 +42,62 @@ object Checksum {
         udpPacket: ByteArray,
         udpOffset: Int,
         udpLength: Int
+    ): Int = calculateTransportChecksum(
+        srcIp = srcIp,
+        dstIp = dstIp,
+        protocol = 17,
+        segment = udpPacket,
+        offset = udpOffset,
+        length = udpLength,
+        forceNonZero = true
+    )
+
+    /**
+     * Calculates a TCP (protocol 6) or UDP (protocol 17) transport checksum
+     * over either an IPv4 (4-byte) or IPv6 (16-byte) pseudo-header.
+     */
+    fun calculateTransportChecksum(
+        srcIp: ByteArray,
+        dstIp: ByteArray,
+        protocol: Int,
+        segment: ByteArray,
+        offset: Int,
+        length: Int,
+        forceNonZero: Boolean = (protocol == 17)
     ): Int {
         var sum = 0
 
-        // Pseudo-header:
-        // Source IP (4 bytes)
-        for (i in 0 until 4 step 2) {
+        for (i in 0 until srcIp.size step 2) {
             val word = ((srcIp[i].toInt() and 0xFF) shl 8) or (srcIp[i + 1].toInt() and 0xFF)
             sum += word
         }
 
-        // Destination IP (4 bytes)
-        for (i in 0 until 4 step 2) {
+        for (i in 0 until dstIp.size step 2) {
             val word = ((dstIp[i].toInt() and 0xFF) shl 8) or (dstIp[i + 1].toInt() and 0xFF)
             sum += word
         }
 
-        // Zero (1 byte) + Protocol (1 byte, 17 for UDP)
-        sum += 17
+        if (srcIp.size == 16) {
+            // IPv6 pseudo-header uses 32-bit upper-layer packet length + Next Header
+            sum += (length ushr 16) and 0xFFFF
+            sum += length and 0xFFFF
+            sum += protocol and 0xFF
+        } else {
+            // IPv4 pseudo-header uses Protocol + 16-bit length
+            sum += protocol and 0xFF
+            sum += length and 0xFFFF
+        }
 
-        // UDP Length (2 bytes)
-        sum += udpLength
-
-        // UDP Header + Data
-        var i = udpOffset
-        val end = udpOffset + udpLength
+        var i = offset
+        val end = offset + length
         while (i < end - 1) {
-            val word = ((udpPacket[i].toInt() and 0xFF) shl 8) or (udpPacket[i + 1].toInt() and 0xFF)
+            val word = ((segment[i].toInt() and 0xFF) shl 8) or (segment[i + 1].toInt() and 0xFF)
             sum += word
             i += 2
         }
 
         if (i < end) {
-            val word = (udpPacket[i].toInt() and 0xFF) shl 8
+            val word = (segment[i].toInt() and 0xFF) shl 8
             sum += word
         }
 
@@ -83,6 +106,6 @@ object Checksum {
         }
 
         val res = (sum.inv()) and 0xFFFF
-        return if (res == 0) 0xFFFF else res
+        return if (forceNonZero && res == 0) 0xFFFF else res
     }
 }

@@ -49,6 +49,17 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
         flushLogBatch()
     }
 
+    private val reconfigureRunnable = Runnable {
+        if (LocalVpnService.isServiceRunning) {
+            val intent = Intent(reactContext, LocalVpnService::class.java).apply {
+                action = LocalVpnService.ACTION_RECONFIGURE
+            }
+            try {
+                reactContext.startService(intent)
+            } catch (_: Exception) {}
+        }
+    }
+
     init {
         reactContext.addActivityEventListener(this)
 
@@ -59,35 +70,8 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
             // Non-fatal fallback
         }
 
-        // Restore persisted DNS settings
-        try {
-            val savedServers = dnsPrefs.getStringSet("upstream_servers", null)?.toList()
-            val savedModeStr = dnsPrefs.getString("blocking_mode", null)
-            val savedMode = if (savedModeStr != null) try { BlockingMode.valueOf(savedModeStr) } catch (e: Exception) { null } else null
-
-            if (savedServers != null || savedMode != null) {
-                LocalVpnService.currentConfig = LocalVpnService.currentConfig.copy(
-                    upstreamDnsServers = savedServers ?: LocalVpnService.currentConfig.upstreamDnsServers,
-                    blockingMode = savedMode ?: LocalVpnService.currentConfig.blockingMode
-                )
-            }
-
-            // Restore SafeSearch state
-            val safeSearch = dnsPrefs.getBoolean("safe_search_enabled", false)
-            LocalVpnService.filterEngine.enableSafeSearch = safeSearch
-
-            // Restore persisted Category Blocker domains
-            val savedCats = dnsPrefs.getStringSet("category_domains", null)
-            if (savedCats != null && savedCats.isNotEmpty()) {
-                LocalVpnService.filterEngine.setCategoryDomains(savedCats.toList())
-            }
-
-            // Restore Real-Time Threat Alerts preference
-            LocalVpnService.threatAlertsEnabled = dnsPrefs.getBoolean("threat_alerts_enabled", true)
-
-            // Restore Premium / Trial license state
-            LocalVpnService.filterEngine.isPremium = dnsPrefs.getBoolean("is_premium", true)
-        } catch (e: Exception) {}
+        // Restore persisted DNS, category blockers, family shield, schedule, and license settings
+        LocalVpnService.syncPersistedState(reactContext)
 
         // Buffer and batch query logs to prevent flooding the React Native bridge
         FilteringLog.addListener { entry ->
@@ -210,10 +194,10 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
     fun addCustomRule(ruleString: String, promise: Promise) {
         val rule = AdBlockRule.parse(ruleString)
         if (rule != null) {
-            LocalVpnService.filterEngine.loadRulesFromString(ruleString)
             val currentRules = filterRepository.getUserRules()
             val newRules = if (currentRules.isBlank()) ruleString else "$currentRules\n$ruleString"
             filterRepository.saveUserRules(newRules, LocalVpnService.filterEngine)
+            reconfigureVpnIfRunning()
             promise.resolve(true)
         } else {
             promise.reject("INVALID_RULE", "Could not parse rule: $ruleString")
@@ -229,6 +213,7 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
     @ReactMethod
     fun saveUserRules(rulesText: String, promise: Promise) {
         filterRepository.saveUserRules(rulesText, LocalVpnService.filterEngine)
+        reconfigureVpnIfRunning()
         promise.resolve(true)
     }
 
@@ -259,6 +244,7 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
         if (sub != null) {
             filterRepository.setSubscriptionEnabled(subId, enabled)
             filterRepository.reloadAll(LocalVpnService.filterEngine)
+            reconfigureVpnIfRunning()
             promise.resolve(true)
         } else {
             promise.reject("NOT_FOUND", "Subscription with id $id not found")
@@ -276,6 +262,9 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
                         val ok = filterRepository.updateSubscription(sub, LocalVpnService.filterEngine)
                         if (ok) updated++
                     }
+                }
+                if (updated > 0) {
+                    reconfigureVpnIfRunning()
                 }
                 promise.resolve(updated)
             } catch (e: Exception) {
@@ -363,6 +352,24 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
         promise.resolve(map)
     }
 
+    private val criticalAdDomains = setOf(
+        "googleads.g.doubleclick.net",
+        "pubads.g.doubleclick.net",
+        "pagead2.googlesyndication.com",
+        "adservice.google.com",
+        "doubleclick.net",
+        "googlesyndication.com",
+        "app-measurement.com",
+        "google-analytics.com"
+    )
+
+    private fun sanitizeExcludedDomains(domains: List<String>): List<String> {
+        return domains.map { it.trim().lowercase().trimEnd('.') }
+            .filter { d ->
+                d.isNotEmpty() && criticalAdDomains.none { cad -> d == cad || d.endsWith(".$cad") }
+            }
+    }
+
     @ReactMethod
     fun setDnsSettings(upstreamServers: ReadableArray, blockingModeStr: String, promise: Promise) {
         val servers = mutableListOf<String>()
@@ -371,10 +378,19 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
             if (!item.isNullOrEmpty()) {
                 if (item.startsWith("sdns://", ignoreCase = true)) {
                     val parsed = com.fajostech.aegisguard.dns.DnsStamp.parse(item)
-                    if (parsed != null && parsed.serverAddress.isNotBlank()) {
-                        servers.add(parsed.serverAddress.substringBefore(":"))
+                    if (parsed != null) {
+                        if (parsed.protocol == com.fajostech.aegisguard.dns.DnsStamp.StampProtocol.DOH &&
+                            parsed.providerName.isNotBlank()
+                        ) {
+                            val path = parsed.path?.takeIf { it.isNotBlank() } ?: "/dns-query"
+                            servers.add("https://${parsed.providerName}$path")
+                        } else if (parsed.serverAddress.isNotBlank()) {
+                            servers.add(parsed.serverAddress.substringBefore(":"))
+                        }
                     }
-                } else if (!item.startsWith("http://", ignoreCase = true) && !item.startsWith("https://", ignoreCase = true)) {
+                } else if (item.startsWith("https://", ignoreCase = true)) {
+                    servers.add(item)
+                } else if (!item.startsWith("http://", ignoreCase = true)) {
                     servers.add(item)
                 }
             }
@@ -395,6 +411,7 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
         )
 
         dnsPrefs.edit()
+            .putString("upstream_servers_ordered", servers.joinToString(","))
             .putStringSet("upstream_servers", servers.toSet())
             .putString("blocking_mode", mode.name)
             .apply()
@@ -418,9 +435,109 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
+    fun setBedtimeSchedule(enabled: Boolean, startHour: Int, endHour: Int, domains: ReadableArray, promise: Promise) {
+        val list = mutableListOf<String>()
+        for (i in 0 until domains.size()) {
+            domains.getString(i)?.trim()?.lowercase()?.let {
+                if (it.isNotEmpty()) list.add(it)
+            }
+        }
+        LocalVpnService.filterEngine.setBedtimeSchedule(enabled, startHour, endHour, list)
+        dnsPrefs.edit()
+            .putBoolean("schedule_enabled", enabled)
+            .putInt("schedule_start_hour", startHour)
+            .putInt("schedule_end_hour", endHour)
+            .putStringSet("schedule_domains", list.toSet())
+            .apply()
+        reconfigureVpnIfRunning()
+        promise.resolve(true)
+    }
+
+    @ReactMethod
+    fun setExcludedDomains(domains: ReadableArray, promise: Promise) {
+        val raw = mutableListOf<String>()
+        for (i in 0 until domains.size()) {
+            domains.getString(i)?.trim()?.lowercase()?.let {
+                if (it.isNotEmpty()) raw.add(it)
+            }
+        }
+        val safeList = sanitizeExcludedDomains(raw)
+        LocalVpnService.filterEngine.setExcludedDomains(safeList)
+        dnsPrefs.edit().putStringSet("excluded_domains", safeList.toSet()).apply()
+        reconfigureVpnIfRunning()
+        promise.resolve(true)
+    }
+
+    @ReactMethod
+    fun addCustomApp(app: ReadableMap, domains: ReadableArray?, promise: Promise) {
+        try {
+            val pkg = if (app.hasKey("packageName")) app.getString("packageName")?.trim() else null
+            val bypassed = if (app.hasKey("isVpnBypassed")) app.getBoolean("isVpnBypassed") else true
+            if (!pkg.isNullOrEmpty()) {
+                appManager.setAppBypass(pkg, bypassed)
+            }
+            if (domains != null && domains.size() > 0) {
+                val incoming = mutableListOf<String>()
+                for (i in 0 until domains.size()) {
+                    domains.getString(i)?.trim()?.lowercase()?.let {
+                        if (it.isNotEmpty()) incoming.add(it)
+                    }
+                }
+                val existing = dnsPrefs.getStringSet("excluded_domains", emptySet()) ?: emptySet()
+                val merged = sanitizeExcludedDomains((existing + incoming).distinct())
+                LocalVpnService.filterEngine.setExcludedDomains(merged)
+                dnsPrefs.edit().putStringSet("excluded_domains", merged.toSet()).apply()
+            }
+            reconfigureVpnIfRunning()
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("CUSTOM_APP_ERROR", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun setFamilyProtectionEnabled(enabled: Boolean, promise: Promise) {
+        LocalVpnService.filterEngine.enableFamilyFilter = enabled
+        val servers = if (enabled) {
+            listOf("94.140.14.15", "94.140.15.16")
+        } else {
+            listOf("94.140.14.14", "94.140.15.15")
+        }
+        LocalVpnService.currentConfig = LocalVpnService.currentConfig.copy(
+            upstreamDnsServers = servers
+        )
+        dnsPrefs.edit()
+            .putBoolean("family_protection_enabled", enabled)
+            .putString("upstream_servers_ordered", servers.joinToString(","))
+            .putStringSet("upstream_servers", servers.toSet())
+            .apply()
+        reconfigureVpnIfRunning()
+        promise.resolve(true)
+    }
+
+    @ReactMethod
+    fun isFamilyProtectionEnabled(promise: Promise) {
+        promise.resolve(LocalVpnService.filterEngine.enableFamilyFilter)
+    }
+
+    @ReactMethod
+    fun setGameAdsBypassEnabled(enabled: Boolean, promise: Promise) {
+        LocalVpnService.filterEngine.gameAdsBypassEnabled = enabled
+        dnsPrefs.edit().putBoolean("game_ads_bypass_enabled", enabled).apply()
+        reconfigureVpnIfRunning()
+        promise.resolve(true)
+    }
+
+    @ReactMethod
+    fun isGameAdsBypassEnabled(promise: Promise) {
+        promise.resolve(LocalVpnService.filterEngine.gameAdsBypassEnabled)
+    }
+
+    @ReactMethod
     fun setSafeSearchEnabled(enabled: Boolean, promise: Promise) {
         LocalVpnService.filterEngine.enableSafeSearch = enabled
         dnsPrefs.edit().putBoolean("safe_search_enabled", enabled).apply()
+        reconfigureVpnIfRunning()
         promise.resolve(true)
     }
 
@@ -447,8 +564,13 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
         LocalVpnService.filterEngine.isPremium = isPremium
         dnsPrefs.edit().putBoolean("is_premium", isPremium).apply()
         val effectiveServers = if (isPremium) {
-            dnsPrefs.getStringSet("upstream_servers", null)?.toList()
-                ?: listOf("94.140.14.14", "94.140.15.15")
+            val orderedRaw = dnsPrefs.getString("upstream_servers_ordered", null)
+            if (!orderedRaw.isNullOrBlank()) {
+                orderedRaw.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+            } else {
+                dnsPrefs.getStringSet("upstream_servers", null)?.toList()
+                    ?: listOf("94.140.14.14", "94.140.15.15")
+            }
         } else {
             listOf("1.1.1.1", "1.0.0.1")
         }
@@ -528,10 +650,8 @@ class AdGuardVpnModule(private val reactContext: ReactApplicationContext) :
 
     private fun reconfigureVpnIfRunning() {
         if (LocalVpnService.isServiceRunning) {
-            val intent = Intent(reactContext, LocalVpnService::class.java).apply {
-                action = LocalVpnService.ACTION_RECONFIGURE
-            }
-            reactContext.startService(intent)
+            mainHandler.removeCallbacks(reconfigureRunnable)
+            mainHandler.postDelayed(reconfigureRunnable, 150)
         }
     }
 

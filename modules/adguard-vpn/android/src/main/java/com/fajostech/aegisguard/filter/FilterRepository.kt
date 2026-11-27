@@ -262,8 +262,9 @@ class FilterRepository(private val context: Context) {
     }
 
     private fun loadUserRules(engine: DnsFilterEngine) {
+        engine.clearUserRules()
         if (userRulesFile.exists()) {
-            engine.loadRulesFromString(userRulesFile.readText())
+            engine.loadUserRulesFromString(userRulesFile.readText())
         }
     }
 
