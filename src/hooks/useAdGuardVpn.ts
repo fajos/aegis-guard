@@ -7,6 +7,7 @@ import {
   VpnStatistics,
   QueryLogRecord,
 } from '../native/AdGuardVpnModule';
+import { syncCategoriesAndSafari } from '../utils/backup';
 
 let cachedIsRunning = false;
 let cachedStats: VpnStatistics = {
@@ -99,6 +100,7 @@ export function useAdGuardVpn(isActive: boolean = true) {
         cachedIsRunning = false;
         setIsRunning(false);
       } else {
+        await syncCategoriesAndSafari().catch(() => {});
         await AdGuardVpn.startVpn();
         cachedIsRunning = true;
         setIsRunning(true);
@@ -117,6 +119,7 @@ export function useAdGuardVpn(isActive: boolean = true) {
     }
     setSnoozeSeconds(0);
     try {
+      await syncCategoriesAndSafari().catch(() => {});
       await AdGuardVpn.startVpn();
       cachedIsRunning = true;
       setIsRunning(true);

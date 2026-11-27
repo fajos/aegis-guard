@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AdGuardVpn } from '../native/AdGuardVpnModule';
 
-const LAST_UPDATE_KEY = '@aegis_last_auto_filter_update';
+const LAST_UPDATE_KEY = '@aegis_last_auto_filter_update_v2';
 // Check updates if last update was over 4 hours ago, or on cold start
 const AUTO_UPDATE_INTERVAL_MS = 4 * 60 * 60 * 1000;
 

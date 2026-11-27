@@ -66,10 +66,8 @@ data class AdBlockRule(
                                 dnsRewriteIp = rewriteTarget
                             }
                         }
-                        // Reject browser-only scoped modifiers that must never be applied to DNS
-                        m.startsWith("domain=") || m.startsWith("cookie=") || m.startsWith("redirect=") ||
-                        m.startsWith("header=") || m.startsWith("csp=") || m.startsWith("replace=") ||
-                        m.startsWith("app=") || m.startsWith("denyallow=") -> {
+                        // Reject any non-DNS / browser-scoped modifiers ($third-party, $domain=, $cookie=, $script, $popup, etc.)
+                        else -> {
                             return null
                         }
                     }

@@ -349,10 +349,17 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private let pathQueue = DispatchQueue(label: "com.fajostech.aegisguard.tunnel.path")
     private let packetWriteQueue = DispatchQueue(label: "com.fajostech.aegisguard.tunnel.write")
 
+    private struct InFlightWaiter {
+        let tx0: UInt8
+        let tx1: UInt8
+        let startTime: CFAbsoluteTime
+        let writeReply: (Data) -> Void
+    }
+
     private static func makeDohSession() -> URLSession {
         let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 2.5
-        config.timeoutIntervalForResource = 3.0
+        config.timeoutIntervalForRequest = 3.5
+        config.timeoutIntervalForResource = 4.5
         config.httpMaximumConnectionsPerHost = 12
         config.connectionProxyDictionary = [:]
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -369,6 +376,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     private let dnsCacheLock = NSLock()
     private var dnsCache: [String: (data: Data, expiresAt: TimeInterval, upstreamBlocked: Bool, transport: String)] = [:]
+    private let inFlightLock = NSLock()
+    private var inFlightQueries: [String: [InFlightWaiter]] = [:]
     private var isStopping: Bool = false
 
     // Runtime configuration loaded from shared App Group
@@ -380,6 +389,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private var upstreamDohUrl: String = "https://dns.adguard-dns.com/dns-query"
     private var upstreamBootstrapIp: String = "94.140.14.14"
     private var upstreamProfileName: String = "Aegis Guard DNS (Default)"
+    private var upstreamAllServers: [String] = ["94.140.14.14", "94.140.15.15"]
 
     private var categoryDomains: Set<String> = []
     private var downloadedAdDomains: Set<String> = []
@@ -647,10 +657,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         if effectiveV4 {
             let ipv4Settings = NEIPv4Settings(addresses: [self.tunnelAddress], subnetMasks: ["255.255.255.252"])
             ipv4Settings.includedRoutes = [NEIPv4Route.default()]
-            ipv4Settings.excludedRoutes = AegisCidrExclude.excludeIPv4(exceptCidrs: [
-                self.virtualDnsAddress + "/32",
-                "0.0.0.0/31"
-            ])
+            ipv4Settings.excludedRoutes = AegisCidrExclude.excludeIPv4(exceptCidrs: buildExceptIPv4Cidrs())
             settings.ipv4Settings = ipv4Settings
         }
 
@@ -665,6 +672,42 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
 
         return settings
+    }
+
+    private func buildExceptIPv4Cidrs() -> [String] {
+        var cidrs = [
+            self.virtualDnsAddress + "/32",
+            "0.0.0.0/31"
+        ]
+        let activeUpstreams = stateQueue.sync { () -> Set<String> in
+            var s = Set(self.upstreamAllServers.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+            s.insert(self.upstreamBootstrapIp.trimmingCharacters(in: .whitespacesAndNewlines))
+            return s
+        }
+        // Capture third-party public DNS resolvers (UDP/53 filtered locally; DoH/DoT probes dropped)
+        // unless that resolver family is actively configured as AegisGuard's upstream.
+        let resolverFamilies: [[String]] = [
+            ["8.8.8.8", "8.8.4.4"],
+            ["1.1.1.1", "1.0.0.1", "1.1.1.3", "1.0.0.3"],
+            ["9.9.9.9", "149.112.112.112"],
+            ["208.67.222.222", "208.67.220.220"]
+        ]
+        for family in resolverFamilies {
+            if !family.contains(where: { activeUpstreams.contains($0) }) {
+                for ip in family where ip != "1.1.1.3" && ip != "1.0.0.3" {
+                    cidrs.append(ip + "/32")
+                }
+            }
+        }
+        if evaluateDomain("x.com", qtype: 1).isBlocked || evaluateDomain("twitter.com", qtype: 1).isBlocked {
+            cidrs.append(contentsOf: [
+                "104.244.40.0/21",
+                "199.16.156.0/22",
+                "199.59.148.0/22",
+                "192.133.76.0/22"
+            ])
+        }
+        return cidrs
     }
 
     private func handlePathChange(ipv4Available: Bool, ipv6Available: Bool, interfaceSig: String) {
@@ -712,6 +755,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         isTunnelActive = false
         isStopping = true
+        inFlightLock.lock()
+        inFlightQueries.removeAll()
+        inFlightLock.unlock()
         tunnelQueue.sync {
             self.pathMonitor?.cancel()
             self.pathMonitor = nil
@@ -729,7 +775,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
         if let msg = String(data: messageData, encoding: .utf8), msg == "reload" {
-            reloadConfigFromAppGroup()
+            reloadConfigFromAppGroup(flushSystemCacheIfChanged: true)
         } else if let msg = String(data: messageData, encoding: .utf8), msg == "clear_logs" {
             statsQueue.async {
                 self.recentLogs = []
@@ -744,40 +790,34 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     // MARK: - Config Sync from Shared App Group
 
-    private func reloadConfigFromAppGroup() {
+    private func reloadConfigFromAppGroup(flushSystemCacheIfChanged: Bool = false) {
         guard let defaults = UserDefaults(suiteName: appGroupId) else { return }
 
+        var rulesChanged = false
         stateQueue.sync {
-            if defaults.object(forKey: "aegis_is_premium") != nil {
-                self.isPremium = defaults.bool(forKey: "aegis_is_premium")
-            } else {
-                self.isPremium = true
-            }
+            let newIsPremium = defaults.object(forKey: "aegis_is_premium") != nil
+                ? defaults.bool(forKey: "aegis_is_premium")
+                : true
 
-            self.blockingMode = defaults.string(forKey: "aegis_blocking_mode") ?? "ADDRESS"
-            self.safeSearchEnabled = defaults.bool(forKey: "aegis_safe_search")
-            self.familyProtectionEnabled = defaults.bool(forKey: "aegis_family_protection")
-            if defaults.object(forKey: "aegis_threat_alerts") != nil {
-                self.threatAlertsEnabled = defaults.bool(forKey: "aegis_threat_alerts")
-            } else {
-                self.threatAlertsEnabled = true
-            }
+            let newBlockingMode = defaults.string(forKey: "aegis_blocking_mode") ?? "ADDRESS"
+            let newSafeSearch = defaults.bool(forKey: "aegis_safe_search")
+            let newFamilyProtection = defaults.bool(forKey: "aegis_family_protection")
+            let newThreatAlerts = defaults.object(forKey: "aegis_threat_alerts") != nil
+                ? defaults.bool(forKey: "aegis_threat_alerts")
+                : true
 
             let servers = defaults.stringArray(forKey: "aegis_selected_dns_servers") ?? []
-            if !self.isPremium {
-                self.upstreamDohUrl = "https://cloudflare-dns.com/dns-query"
-                self.upstreamBootstrapIp = "1.1.1.1"
-                self.upstreamProfileName = "Aegis Guard Basic Privacy"
-            } else {
-                let resolved = self.resolveUpstream(servers: servers, isFamily: self.familyProtectionEnabled)
-                self.upstreamDohUrl = resolved.dohUrl
-                self.upstreamBootstrapIp = resolved.bootstrapIp
-                self.upstreamProfileName = resolved.description
-            }
+            let effectiveServers = !newIsPremium
+                ? ["1.1.1.1", "1.0.0.1"]
+                : (servers.isEmpty ? (newFamilyProtection ? ["94.140.14.15", "94.140.15.16"] : ["94.140.14.14", "94.140.15.15"]) : servers)
+            let resolved = !newIsPremium
+                ? (dohUrl: "https://cloudflare-dns.com/dns-query", bootstrapIp: "1.1.1.1", description: "Aegis Guard Basic Privacy")
+                : self.resolveUpstream(servers: servers, isFamily: newFamilyProtection)
 
             let cats = defaults.stringArray(forKey: "aegis_category_domains") ?? []
-            self.categoryDomains = Set(cats.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty })
+            let newCategories = Set(cats.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty })
 
+            var newDownloaded = self.downloadedAdDomains
             if let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: self.appGroupId) {
                 let domainsFile = containerURL.appendingPathComponent("aegis_downloaded_domains.txt")
                 if let rawList = try? String(contentsOf: domainsFile, encoding: .utf8), !rawList.isEmpty {
@@ -792,18 +832,20 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                             }
                         }
                     }
-                    self.downloadedAdDomains = dlSet
+                    newDownloaded = dlSet
+                } else {
+                    newDownloaded = []
                 }
             }
 
             let excl = defaults.stringArray(forKey: "aegis_excluded_domains") ?? []
-            self.excludedDomains = Set(excl.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty })
+            let newExcluded = Set(excl.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty })
 
-            self.scheduleEnabled = defaults.bool(forKey: "aegis_schedule_enabled")
-            self.scheduleStartHour = defaults.object(forKey: "aegis_schedule_start_hour") as? Int ?? 21
-            self.scheduleEndHour = defaults.object(forKey: "aegis_schedule_end_hour") as? Int ?? 7
+            let newScheduleEnabled = defaults.bool(forKey: "aegis_schedule_enabled")
+            let newScheduleStart = defaults.object(forKey: "aegis_schedule_start_hour") as? Int ?? 21
+            let newScheduleEnd = defaults.object(forKey: "aegis_schedule_end_hour") as? Int ?? 7
             let schedDoms = defaults.stringArray(forKey: "aegis_schedule_domains") ?? []
-            self.scheduledDomains = Set(schedDoms.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty })
+            let newScheduledDomains = Set(schedDoms.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty })
 
             let rawRules = defaults.string(forKey: "aegis_user_rules") ?? ""
             var parsedAllow = Set<String>()
@@ -836,6 +878,42 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 }
             }
 
+            if newIsPremium != self.isPremium ||
+               newBlockingMode != self.blockingMode ||
+               newSafeSearch != self.safeSearchEnabled ||
+               newFamilyProtection != self.familyProtectionEnabled ||
+               resolved.dohUrl != self.upstreamDohUrl ||
+               resolved.bootstrapIp != self.upstreamBootstrapIp ||
+               effectiveServers != self.upstreamAllServers ||
+               newCategories != self.categoryDomains ||
+               newDownloaded != self.downloadedAdDomains ||
+               newExcluded != self.excludedDomains ||
+               newScheduleEnabled != self.scheduleEnabled ||
+               newScheduleStart != self.scheduleStartHour ||
+               newScheduleEnd != self.scheduleEndHour ||
+               newScheduledDomains != self.scheduledDomains ||
+               parsedAllow != self.allowRules ||
+               parsedBlock != self.blockRules ||
+               parsedRewrite != self.rewriteRules {
+                rulesChanged = true
+            }
+
+            self.isPremium = newIsPremium
+            self.blockingMode = newBlockingMode
+            self.safeSearchEnabled = newSafeSearch
+            self.familyProtectionEnabled = newFamilyProtection
+            self.threatAlertsEnabled = newThreatAlerts
+            self.upstreamDohUrl = resolved.dohUrl
+            self.upstreamBootstrapIp = resolved.bootstrapIp
+            self.upstreamProfileName = resolved.description
+            self.upstreamAllServers = effectiveServers
+            self.categoryDomains = newCategories
+            self.downloadedAdDomains = newDownloaded
+            self.excludedDomains = newExcluded
+            self.scheduleEnabled = newScheduleEnabled
+            self.scheduleStartHour = newScheduleStart
+            self.scheduleEndHour = newScheduleEnd
+            self.scheduledDomains = newScheduledDomains
             self.allowRules = parsedAllow
             self.blockRules = parsedBlock
             self.rewriteRules = parsedRewrite
@@ -843,6 +921,14 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         dnsCacheLock.lock()
         self.dnsCache.removeAll()
         dnsCacheLock.unlock()
+
+        if flushSystemCacheIfChanged && rulesChanged {
+            tunnelQueue.async { [weak self] in
+                guard let self = self, self.isTunnelActive, !self.isStopping else { return }
+                let updated = self.buildTunnelSettings(ipv4Available: self.lastIpv4Available, ipv6Available: self.lastIpv6Available)
+                self.setTunnelNetworkSettings(updated) { _ in }
+            }
+        }
     }
 
     private func stripRuleModifiers(_ raw: String) -> String {
@@ -1055,12 +1141,38 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
 
-        // Allowed locally -> forward over Direct-IP DoH / DoT / UDP fallback (bound off utun)
+        let qBytes = [UInt8](dnsQuery)
+        let tx0 = qBytes.count >= 2 ? qBytes[0] : 0
+        let tx1 = qBytes.count >= 2 ? qBytes[1] : 0
+        let waiter = InFlightWaiter(tx0: tx0, tx1: tx1, startTime: startTime, writeReply: writeReply)
+
+        inFlightLock.lock()
+        if var existing = inFlightQueries[cacheKey], existing.count < 16 {
+            existing.append(waiter)
+            inFlightQueries[cacheKey] = existing
+            inFlightLock.unlock()
+            return
+        }
+        inFlightQueries[cacheKey] = [waiter]
+        inFlightLock.unlock()
+
+        // Allowed locally -> forward over Direct-IP DoH / DoT / UDP fallback (coalesced per qname|qtype)
         forwardViaDoh(dnsQuery: dnsQuery, dohUrl: snapshot.0, bootstrapIp: snapshot.1) { [weak self] responseData, transport in
             guard let self = self else { return }
-            let latency = max(1, Int((CFAbsoluteTimeGetCurrent() - startTime) * 1000))
+            self.inFlightLock.lock()
+            let waiters = self.inFlightQueries.removeValue(forKey: cacheKey) ?? [waiter]
+            self.inFlightLock.unlock()
+
             guard let resp = responseData else {
-                writeReply(self.buildServFailResponse(query: dnsQuery))
+                let servFail = self.buildServFailResponse(query: dnsQuery)
+                for w in waiters {
+                    var patched = [UInt8](servFail)
+                    if patched.count >= 2 {
+                        patched[0] = w.tx0
+                        patched[1] = w.tx1
+                    }
+                    w.writeReply(Data(patched))
+                }
                 return
             }
 
@@ -1080,15 +1192,24 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 self.dnsCacheLock.unlock()
             }
 
-            writeReply(resp)
-            self.recordQuery(
-                domain: qname,
-                qtype: qtypeStr,
-                isBlocked: upstreamBlocked,
-                rule: upstreamBlocked ? "Upstream \\(transport) Block" : nil,
-                durationMs: latency,
-                upstream: "\\(snapshot.2) [\\(transport)]"
-            )
+            let nowFinished = CFAbsoluteTimeGetCurrent()
+            for w in waiters {
+                var patched = [UInt8](resp)
+                if patched.count >= 2 {
+                    patched[0] = w.tx0
+                    patched[1] = w.tx1
+                }
+                let latency = max(1, Int((nowFinished - w.startTime) * 1000))
+                w.writeReply(Data(patched))
+                self.recordQuery(
+                    domain: qname,
+                    qtype: qtypeStr,
+                    isBlocked: upstreamBlocked,
+                    rule: upstreamBlocked ? "Upstream \\(transport) Block" : nil,
+                    durationMs: latency,
+                    upstream: "\\(snapshot.2) [\\(transport)]"
+                )
+            }
         }
     }
 
@@ -1324,16 +1445,16 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             resp.append(0x80) // NOERROR
             resp.append(contentsOf: [0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00])
             resp.append(contentsOf: qBytes[12..<questionEnd])
-            // Answer pointer 0xC00C, TYPE A, CLASS IN, TTL 300s, RDLENGTH 4
-            resp.append(contentsOf: [0xC0, 0x0C, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2C, 0x00, 0x04])
+            // Answer pointer 0xC00C, TYPE A, CLASS IN, TTL 60s, RDLENGTH 4
+            resp.append(contentsOf: [0xC0, 0x0C, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3C, 0x00, 0x04])
             resp.append(contentsOf: aBytes)
             return Data(resp)
         } else if qtype == 28 && rewriteIp == nil && upperMode != "NODATA" {
             resp.append(0x80) // NOERROR
             resp.append(contentsOf: [0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00])
             resp.append(contentsOf: qBytes[12..<questionEnd])
-            // Answer pointer 0xC00C, TYPE AAAA, CLASS IN, TTL 300s, RDLENGTH 16 (::)
-            resp.append(contentsOf: [0xC0, 0x0C, 0x00, 0x1C, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2C, 0x00, 0x10])
+            // Answer pointer 0xC00C, TYPE AAAA, CLASS IN, TTL 60s, RDLENGTH 16 (::)
+            resp.append(contentsOf: [0xC0, 0x0C, 0x00, 0x1C, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3C, 0x00, 0x10])
             resp.append(contentsOf: [UInt8](repeating: 0, count: 16))
             return Data(resp)
         } else {
@@ -1505,7 +1626,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         request.setValue("application/dns-message", forHTTPHeaderField: "Content-Type")
         request.setValue("application/dns-message", forHTTPHeaderField: "Accept")
         request.httpBody = dnsQuery
-        request.timeoutInterval = 2.5
+        request.timeoutInterval = 3.5
 
         let task = session.dataTask(with: request) { [weak self] data, response, error in
             if error == nil,

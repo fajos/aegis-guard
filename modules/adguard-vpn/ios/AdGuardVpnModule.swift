@@ -178,7 +178,7 @@ public class AdGuardVpnModule: Module {
   private func notifyTunnel(_ message: String) {
     findTunnelManager { manager, _ in
       guard let session = manager?.connection as? NETunnelProviderSession else { return }
-      guard session.status == .connected || session.status == .connecting else { return }
+      guard session.status == .connected || session.status == .connecting || session.status == .reasserting else { return }
       try? session.sendProviderMessage(Data(message.utf8)) { _ in }
     }
   }
@@ -248,6 +248,19 @@ public class AdGuardVpnModule: Module {
     Events("onVpnStateChanged", "onQueriesLogged", "onQueryLogged")
 
     OnCreate {
+      if self.sharedDefaults.integer(forKey: "aegis_filter_parser_version") < 2 {
+        if let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: self.appGroupId) {
+          let fileURL = containerURL.appendingPathComponent("aegis_downloaded_domains.txt")
+          try? FileManager.default.removeItem(at: fileURL)
+        }
+        self.sharedDefaults.set(0, forKey: "aegis_downloaded_rule_count")
+        self.sharedDefaults.removeObject(forKey: "aegis_filter_counts_map")
+        self.sharedDefaults.removeObject(forKey: "aegis_filter_updated_map")
+        self.sharedDefaults.set(2, forKey: "aegis_filter_parser_version")
+        self.sharedDefaults.synchronize()
+        self.notifyTunnel("reload")
+      }
+
       self.statusObserver = NotificationCenter.default.addObserver(
         forName: .NEVPNStatusDidChange,
         object: nil,
@@ -854,7 +867,7 @@ public class AdGuardVpnModule: Module {
                 let url = URL(string: urlStr) else { continue }
 
           var req = URLRequest(url: url)
-          req.timeoutInterval = 25.0
+          req.timeoutInterval = 40.0
           let sem = DispatchSemaphore(value: 0)
           var downloadedData: Data? = nil
           URLSession.shared.dataTask(with: req) { data, resp, err in
@@ -863,41 +876,15 @@ public class AdGuardVpnModule: Module {
             }
             sem.signal()
           }.resume()
-          _ = sem.wait(timeout: .now() + 27.0)
+          _ = sem.wait(timeout: .now() + 42.0)
 
           guard let data = downloadedData, let text = String(data: data, encoding: .utf8) else { continue }
           var subCount = 0
           text.enumerateLines { rawLine, _ in
-            if rawLine.count > 180 { return }
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if line.isEmpty || line.hasPrefix("!") || line.hasPrefix("#") || line.hasPrefix("@@") || line.contains("$badfilter") || line.contains("##") || line.contains("#@#") { return }
-            if line.hasPrefix("||") {
-              var body = String(line.dropFirst(2))
-              if body.hasPrefix("*.") { body = String(body.dropFirst(2)) }
-              while body.hasPrefix(".") { body.removeFirst() }
-              if let sepIdx = body.firstIndex(where: { $0 == "^" || $0 == "$" || $0 == "/" }) {
-                let sepChar = body[sepIdx]
-                if sepChar == "/" { return }
-                body = String(body[..<sepIdx])
-              }
-              let validChars = body.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_") }
-              if validChars && body.contains(".") && body.count <= 120 {
-                subCount += 1
-                if domainSet.count < 35000 {
-                  domainSet.insert(body)
-                }
-              }
-            } else if line.hasPrefix("0.0.0.0 ") || line.hasPrefix("127.0.0.1 ") {
-              let parts = line.split(separator: " ")
-              if parts.count >= 2 {
-                let dom = String(parts[1])
-                let validChars = dom.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_") }
-                if validChars && dom.contains(".") && dom != "0.0.0.0" && dom != "localhost" && dom.count <= 120 {
-                  subCount += 1
-                  if domainSet.count < 35000 {
-                    domainSet.insert(dom)
-                  }
-                }
+            if let dom = self.parseDnsDomainRule(rawLine) {
+              subCount += 1
+              if domainSet.count < 35000 {
+                domainSet.insert(dom)
               }
             }
           }
@@ -907,10 +894,15 @@ public class AdGuardVpnModule: Module {
 
         if let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: self.appGroupId) {
           let fileURL = containerURL.appendingPathComponent("aegis_downloaded_domains.txt")
-          let joined = domainSet.joined(separator: "\n")
-          try? joined.write(to: fileURL, atomically: true, encoding: .utf8)
+          if domainSet.isEmpty {
+            try? FileManager.default.removeItem(at: fileURL)
+          } else {
+            let joined = domainSet.joined(separator: "\n")
+            try? joined.write(to: fileURL, atomically: true, encoding: .utf8)
+          }
         }
 
+        self.sharedDefaults.set(2, forKey: "aegis_filter_parser_version")
         self.sharedDefaults.set(domainSet.count, forKey: "aegis_downloaded_rule_count")
         self.sharedDefaults.set(countsById, forKey: "aegis_filter_counts_map")
         self.sharedDefaults.set(updatedTimes, forKey: "aegis_filter_updated_map")
@@ -925,6 +917,52 @@ public class AdGuardVpnModule: Module {
       self.syncWidgetState(activeProfileName: config.description, stats: stats)
       promise.resolve(true)
     }
+  }
+
+  private func parseDnsDomainRule(_ rawLine: String) -> String? {
+    if rawLine.count > 180 { return nil }
+    let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if line.isEmpty || line.hasPrefix("!") || line.hasPrefix("#") || line.hasPrefix("@@") {
+      return nil
+    }
+    if line.contains("##") || line.contains("#@#") || line.contains("#?#") || line.contains("#%#") || line.contains("#$#") {
+      return nil
+    }
+    if line.hasPrefix("||") {
+      var body = String(line.dropFirst(2))
+      if body.hasPrefix("*.") { body = String(body.dropFirst(2)) }
+      while body.hasPrefix(".") { body.removeFirst() }
+      if let dollarIdx = body.firstIndex(of: "$") {
+        let modPart = body[body.index(after: dollarIdx)...]
+        body = String(body[..<dollarIdx])
+        let mods = modPart.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard mods.allSatisfy({ $0 == "important" }) else { return nil }
+      }
+      if body.contains("/") || body.contains("?") || body.contains("=") || body.contains("*") || body.contains(":") {
+        return nil
+      }
+      if body.contains("^") {
+        guard body.hasSuffix("^") else { return nil }
+        body.removeLast()
+        if body.contains("^") { return nil }
+      }
+      let validChars = body.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_") }
+      if validChars && body.contains(".") && body.count <= 120 {
+        return body
+      }
+      return nil
+    }
+    if line.hasPrefix("0.0.0.0 ") || line.hasPrefix("127.0.0.1 ") {
+      let parts = line.split(separator: " ")
+      if parts.count >= 2 {
+        let dom = String(parts[1])
+        let validChars = dom.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_") }
+        if validChars && dom.contains(".") && dom != "0.0.0.0" && dom != "127.0.0.1" && dom != "localhost" && dom.count <= 120 {
+          return dom
+        }
+      }
+    }
+    return nil
   }
 
   private func buildSubscriptionList() -> [[String: Any]] {
