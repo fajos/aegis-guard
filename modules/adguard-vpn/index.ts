@@ -101,6 +101,7 @@ export interface AdGuardVpnInterface {
   requestNotificationPermission?(): Promise<boolean>;
   getIosDnsMode?(): Promise<'tunnel' | 'native'>;
   setIosDnsMode?(mode: 'tunnel' | 'native'): Promise<boolean>;
+  getProxyStatus?(): Promise<string>;
 }
 
 export const GAMING_REWARDED_AD_DOMAINS: string[] = [

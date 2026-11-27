@@ -10,6 +10,7 @@ import {
   Alert,
   Platform,
   RefreshControl,
+  Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AdGuardVpn, vpnEventEmitter, QueryLogRecord } from '../native/AdGuardVpnModule';
@@ -224,6 +225,51 @@ export const QueryLogScreen: React.FC<QueryLogScreenProps> = ({ isActive = true 
     }
   };
 
+  const handleExportLogs = async () => {
+    try {
+      const [latestLogs, stats, dnsCfg, dnsMode, proxyStatus] = await Promise.all([
+        AdGuardVpn.getQueryLogs().catch(() => logs),
+        AdGuardVpn.getStatistics().catch(() => null),
+        AdGuardVpn.getDnsSettings().catch(() => null),
+        Platform.OS === 'ios' && typeof AdGuardVpn.getIosDnsMode === 'function'
+          ? AdGuardVpn.getIosDnsMode().catch(() => 'tunnel')
+          : Promise.resolve('android'),
+        Platform.OS === 'ios' && typeof AdGuardVpn.getProxyStatus === 'function'
+          ? AdGuardVpn.getProxyStatus().catch(() => 'unknown')
+          : Promise.resolve('n/a'),
+      ]);
+
+      const sourceLogs = Array.isArray(latestLogs) && latestLogs.length > 0 ? latestLogs : filteredLogs;
+      const header = [
+        '=== AegisGuard Diagnostic & Query Log ===',
+        `Exported: ${new Date().toISOString()}`,
+        `Platform: ${Platform.OS} | Engine: ${dnsMode} | Proxy: ${proxyStatus}`,
+        dnsCfg ? `DNS Servers: ${(dnsCfg.upstreamDnsServers || []).join(', ')} | Mode: ${dnsCfg.blockingMode}` : 'DNS Config: unavailable',
+        stats ? `Stats: ${stats.blockedQueries}/${stats.totalQueries} blocked (${stats.blockRate}%) | Rules: ${stats.ruleCount}` : 'Stats: unavailable',
+        `Entries: ${sourceLogs.length}`,
+        '----------------------------------------',
+      ];
+
+      const lines = sourceLogs.map((item) => {
+        const ts = new Date(item.timestamp || Date.now()).toISOString();
+        const status = item.isBlocked ? 'BLOCKED' : 'ALLOWED';
+        const qtype = item.queryType || 'A';
+        const rule = item.matchedRule ? ` rule=${item.matchedRule}` : '';
+        const up = item.upstream || 'Unknown';
+        const ms = (item.durationMs || 0).toFixed(0);
+        return `${ts} | ${status} | ${qtype} | ${item.domain} | ${up} | ${ms}ms${rule}`;
+      });
+
+      const report = [...header, ...(lines.length > 0 ? lines : ['(no query logs recorded)'])].join('\n');
+      await Share.share({
+        message: report,
+        title: 'AegisGuard Query Log Export',
+      });
+    } catch (e: any) {
+      Alert.alert('Export Failed', e?.message || 'Could not export query logs.');
+    }
+  };
+
   const filteredLogs = useMemo(() => {
     return logs.filter((item) => {
       const matchesSearch =
@@ -258,6 +304,9 @@ export const QueryLogScreen: React.FC<QueryLogScreenProps> = ({ isActive = true 
           autoCapitalize="none"
           autoCorrect={false}
         />
+        <TouchableOpacity style={styles.exportButton} onPress={handleExportLogs}>
+          <Text style={styles.exportButtonText}>Export</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.clearButton} onPress={handleClear}>
           <Text style={styles.clearButtonText}>Clear</Text>
         </TouchableOpacity>
@@ -416,6 +465,19 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
     fontSize: 14,
     color: '#111827',
+  },
+  exportButton: {
+    height: 42,
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  exportButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
   },
   clearButton: {
     height: 42,

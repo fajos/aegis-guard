@@ -273,6 +273,10 @@ public class AdGuardVpnModule: Module {
       promise.resolve(self.iosDnsMode)
     }
 
+    AsyncFunction("getProxyStatus") { (promise: Promise) in
+      promise.resolve(self.sharedDefaults.string(forKey: "aegis_proxy_status") ?? "not_started")
+    }
+
     AsyncFunction("setIosDnsMode") { (mode: String, promise: Promise) in
       let normalized = (mode == "native") ? "native" : "tunnel"
       let prevMode = self.iosDnsMode

@@ -879,7 +879,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 return
             }
             let bootIp = stateQueue.sync { upstreamBootstrapIp }
-            forwardViaDirectUdp(dnsQuery: dnsQuery, upstreamIp: bootIp) { responseData in
+            forwardViaDirectUdp(dnsQuery: dnsQuery, upstreamIp: bootIp) { responseData, _ in
                 if let resp = responseData {
                     writeReply(resp)
                 }
@@ -904,9 +904,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
 
-        // Allowed locally -> forward over DoH (with UDP bootstrap fallback)
+        // Allowed locally -> forward over Direct-IP DoH / DoT / UDP fallback
         let snapshot = stateQueue.sync { (upstreamDohUrl, upstreamBootstrapIp, upstreamProfileName) }
-        forwardViaDoh(dnsQuery: dnsQuery, dohUrl: snapshot.0, bootstrapIp: snapshot.1) { responseData in
+        forwardViaDoh(dnsQuery: dnsQuery, dohUrl: snapshot.0, bootstrapIp: snapshot.1) { responseData, transport in
             let latency = max(1, Int((CFAbsoluteTimeGetCurrent() - startTime) * 1000))
             guard let resp = responseData else { return }
 
@@ -916,9 +916,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 domain: qname,
                 qtype: qtypeStr,
                 isBlocked: upstreamBlocked,
-                rule: upstreamBlocked ? "Upstream DoH Block" : nil,
+                rule: upstreamBlocked ? "Upstream \\(transport) Block" : nil,
                 durationMs: latency,
-                upstream: snapshot.2
+                upstream: "\\(snapshot.2) [\\(transport)]"
             )
         }
     }
@@ -1248,7 +1248,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         return nil
     }
 
-    private func forwardViaDoh(dnsQuery: Data, dohUrl: String, bootstrapIp: String, completion: @escaping (Data?) -> Void) {
+    private func forwardViaDoh(dnsQuery: Data, dohUrl: String, bootstrapIp: String, completion: @escaping (Data?, String) -> Void) {
         let sniHost = URL(string: dohUrl)?.host ?? "dns.adguard-dns.com"
         // Use Direct-IP HTTPS URL whenever cert SAN supports IP to eliminate mDNSResponder bootstrap loops & latency spikes
         let effectiveUrlStr = supportsDirectIpDoh(bootstrapIp, dohUrl: dohUrl) ?? dohUrl
@@ -1267,7 +1267,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                let httpResp = response as? HTTPURLResponse,
                (200...299).contains(httpResp.statusCode),
                data.count >= 12 {
-                completion(data)
+                completion(data, "DoH")
                 return
             }
             // Fallback 1: Encrypted DNS-over-TLS (port 853) directly to bootstrap IP (immune to UDP:53 hijacking)
@@ -1275,7 +1275,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }.resume()
     }
 
-    private func forwardViaDot(dnsQuery: Data, upstreamIp: String, sniHost: String, completion: @escaping (Data?) -> Void) {
+    private func forwardViaDot(dnsQuery: Data, upstreamIp: String, sniHost: String, completion: @escaping (Data?, String) -> Void) {
         let tlsOpts = Network.NWProtocolTLS.Options()
         sec_protocol_options_set_tls_server_name(tlsOpts.securityProtocolOptions, sniHost)
         let params = Network.NWParameters(tls: tlsOpts)
@@ -1293,7 +1293,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             guard !already else { return }
             conn.cancel()
             if let data = result {
-                completion(data)
+                completion(data, "DoT")
             } else {
                 // Final fallback: direct UDP:53 only if both DoH and DoT failed
                 DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -1347,12 +1347,18 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     // MARK: - Local HTTP/HTTPS CONNECT Proxy (Catches Apps & AVPlayer Bypassing Split-Tunnel DNS)
 
+    private func setProxyStatus(_ status: String) {
+        if let defaults = UserDefaults(suiteName: appGroupId) {
+            defaults.set(status, forKey: "aegis_proxy_status")
+            defaults.synchronize()
+        }
+    }
+
     private func startLocalProxy(completion: @escaping (UInt16?) -> Void) {
         let portNum: UInt16 = 18080
-        let listenPort = Network.NWEndpoint.Port(rawValue: portNum)!
+        let listenPort = Network.NWEndpoint.Port(integerLiteral: portNum)
         let params = Network.NWParameters.tcp
         params.allowLocalEndpointReuse = true
-        params.requiredLocalEndpoint = Network.NWEndpoint.hostPort(host: .ipv4(.loopback), port: listenPort)
 
         do {
             let listener = try Network.NWListener(using: params, on: listenPort)
@@ -1360,12 +1366,13 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
             let lock = NSLock()
             var finished = false
-            func finish(_ bound: UInt16?) {
+            func finish(_ bound: UInt16?, statusText: String) {
                 lock.lock()
                 let already = finished
                 finished = true
                 lock.unlock()
                 if !already {
+                    self.setProxyStatus(statusText)
                     completion(bound)
                 }
             }
@@ -1373,9 +1380,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             listener.stateUpdateHandler = { (state: Network.NWListener.State) in
                 switch state {
                 case .ready:
-                    finish(portNum)
-                case .failed(_), .cancelled:
-                    finish(nil)
+                    finish(portNum, statusText: "ready:\\(portNum)")
+                case .failed(let err):
+                    finish(nil, statusText: "failed:\\(err.localizedDescription)")
+                case .cancelled:
+                    finish(nil, statusText: "cancelled")
                 default:
                     break
                 }
@@ -1386,10 +1395,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             }
 
             proxyQueue.asyncAfter(deadline: .now() + 1.5) {
-                finish(nil)
+                finish(nil, statusText: "timeout")
             }
             listener.start(queue: proxyQueue)
         } catch {
+            setProxyStatus("catch:\\(error.localizedDescription)")
             completion(nil)
         }
     }
@@ -1539,7 +1549,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
 
         let startTime = CFAbsoluteTimeGetCurrent()
-        evaluateProxyHost(cleanHost) { [weak self] isBlocked, rule, isThreatAlert in
+        evaluateProxyHost(cleanHost) { [weak self] isBlocked, rule, isThreatAlert, proxyTag in
             guard let self = self else {
                 client.cancel()
                 return
@@ -1555,14 +1565,23 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 }
                 self.recordQuery(
                     domain: cleanHost,
-                    qtype: isConnect ? "HTTPS" : "HTTP",
+                    qtype: isConnect ? "PROXY_HTTPS" : "PROXY_HTTP",
                     isBlocked: true,
                     rule: rule,
                     durationMs: latency,
-                    upstream: "Aegis Local Proxy"
+                    upstream: "Aegis Proxy [\\(proxyTag)]"
                 )
                 return
             }
+
+            self.recordQuery(
+                domain: cleanHost,
+                qtype: isConnect ? "PROXY_HTTPS" : "PROXY_HTTP",
+                isBlocked: false,
+                rule: nil,
+                durationMs: latency,
+                upstream: "Aegis Proxy [\\(proxyTag)]"
+            )
 
             let effectivePort: UInt16 = (targetPort == 0) ? (isConnect ? 443 : 80) : targetPort
             let remotePort = Network.NWEndpoint.Port(integerLiteral: effectivePort)
@@ -1649,21 +1668,21 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
-    private func evaluateProxyHost(_ host: String, completion: @escaping (Bool, String?, Bool) -> Void) {
+    private func evaluateProxyHost(_ host: String, completion: @escaping (Bool, String?, Bool, String) -> Void) {
         if Network.IPv4Address(host) != nil || host.contains(":") {
-            completion(false, nil, false)
+            completion(false, nil, false, "IP")
             return
         }
 
         let decision = evaluateDomain(host, qtype: 1)
         if decision.isBlocked {
-            completion(decision.countsAsBlock, decision.rule, decision.isThreatAlert)
+            completion(decision.countsAsBlock, decision.rule, decision.isThreatAlert, "Local")
             return
         }
 
         let snap = stateQueue.sync { (isPremium, upstreamDohUrl, upstreamBootstrapIp) }
         guard snap.0 else {
-            completion(false, nil, false)
+            completion(false, nil, false, "Basic")
             return
         }
 
@@ -1671,14 +1690,14 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         let cached = upstreamProxyCache[host]
         proxyCacheLock.unlock()
         if let hit = cached {
-            completion(hit, hit ? "Upstream DoH Block" : nil, false)
+            completion(hit, hit ? "Upstream Cache Block" : nil, false, "Cache")
             return
         }
 
         let dnsQuery = buildDnsAQuery(domain: host)
-        forwardViaDoh(dnsQuery: dnsQuery, dohUrl: snap.1, bootstrapIp: snap.2) { [weak self] resp in
+        forwardViaDoh(dnsQuery: dnsQuery, dohUrl: snap.1, bootstrapIp: snap.2) { [weak self] resp, transport in
             guard let self = self else {
-                completion(false, nil, false)
+                completion(false, nil, false, "Gone")
                 return
             }
             let blocked = resp.map { self.didUpstreamBlock($0) } ?? false
@@ -1688,7 +1707,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             }
             self.upstreamProxyCache[host] = blocked
             self.proxyCacheLock.unlock()
-            completion(blocked, blocked ? "Upstream DoH Block" : nil, false)
+            completion(blocked, blocked ? "Upstream \\(transport) Block" : nil, false, transport)
         }
     }
 
@@ -1704,11 +1723,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         return Data(bytes)
     }
 
-    private func forwardViaDirectUdp(dnsQuery: Data, upstreamIp: String, completion: @escaping (Data?) -> Void) {
+    private func forwardViaDirectUdp(dnsQuery: Data, upstreamIp: String, completion: @escaping (Data?, String) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             let sock = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
             guard sock >= 0 else {
-                completion(nil)
+                completion(nil, "UDP53_Err")
                 return
             }
             defer { Darwin.close(sock) }
@@ -1721,7 +1740,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             addr.sin_family = sa_family_t(AF_INET)
             addr.sin_port = in_port_t(53).bigEndian
             guard inet_pton(AF_INET, upstreamIp, &addr.sin_addr) == 1 else {
-                completion(nil)
+                completion(nil, "UDP53_Err")
                 return
             }
 
@@ -1734,16 +1753,16 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 }
             }
             guard sent > 0 else {
-                completion(nil)
+                completion(nil, "UDP53_Err")
                 return
             }
 
             var recvBuf = [UInt8](repeating: 0, count: 4096)
             let n = Darwin.recv(sock, &recvBuf, recvBuf.count, 0)
             if n >= 12 {
-                completion(Data(recvBuf[0..<n]))
+                completion(Data(recvBuf[0..<n]), "UDP53")
             } else {
-                completion(nil)
+                completion(nil, "UDP53_Timeout")
             }
         }
     }
