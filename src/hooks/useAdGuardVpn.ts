@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   AdGuardVpn,
@@ -17,6 +17,7 @@ let cachedStats: VpnStatistics = {
   ruleCount: 0,
 };
 let cachedRecentLogs: QueryLogRecord[] = [];
+let cachedIosDnsMode: 'tunnel' | 'native' = 'tunnel';
 
 // Eager restore of cached running state
 AsyncStorage.getItem('@aegis_vpn_is_running').then((val) => {
@@ -35,6 +36,7 @@ export function useAdGuardVpn(isActive: boolean = true) {
   const [isRunning, setIsRunning] = useState<boolean>(cachedIsRunning);
   const [stats, setStats] = useState<VpnStatistics>(cachedStats);
   const [recentLogs, setRecentLogs] = useState<QueryLogRecord[]>(cachedRecentLogs);
+  const [iosDnsMode, setIosDnsMode] = useState<'tunnel' | 'native'>(cachedIosDnsMode);
   const [snoozeSeconds, setSnoozeSeconds] = useState<number>(0);
 
   const pendingBatchRef = useRef<QueryLogRecord[]>([]);
@@ -53,20 +55,27 @@ export function useAdGuardVpn(isActive: boolean = true) {
   const refreshState = useCallback(async () => {
     try {
       if (!AdGuardVpn) return;
-      const [running, s, logs] = await Promise.all([
+      const [running, s, logs, mode] = await Promise.all([
         AdGuardVpn.isRunning(),
         AdGuardVpn.getStatistics(),
         typeof AdGuardVpn.getQueryLogs === 'function'
           ? AdGuardVpn.getQueryLogs().catch(() => [])
           : Promise.resolve([]),
+        Platform.OS === 'ios' && typeof AdGuardVpn.getIosDnsMode === 'function'
+          ? AdGuardVpn.getIosDnsMode().catch(() => 'tunnel' as const)
+          : Promise.resolve('tunnel' as const),
       ]);
       cachedIsRunning = running;
       setIsRunning(running);
+      if (mode === 'native' || mode === 'tunnel') {
+        cachedIosDnsMode = mode;
+        setIosDnsMode(mode);
+      }
       if (s) {
         cachedStats = s;
         setStats(s);
       }
-      if (Array.isArray(logs) && logs.length > 0) {
+      if (Array.isArray(logs)) {
         const sliced = logs.slice(0, 80);
         cachedRecentLogs = sliced;
         setRecentLogs(sliced);
@@ -176,7 +185,7 @@ export function useAdGuardVpn(isActive: boolean = true) {
     if (!isActive) return;
 
     refreshState();
-    const interval = setInterval(refreshState, 4000);
+    const interval = setInterval(refreshState, 2500);
 
     const scheduleFlush = () => {
       if (flushTimerRef.current) return;
@@ -244,6 +253,7 @@ export function useAdGuardVpn(isActive: boolean = true) {
     isRunning,
     stats,
     recentLogs,
+    iosDnsMode,
     snoozeSeconds,
     toggleVpn,
     snoozeVpn,

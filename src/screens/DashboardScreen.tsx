@@ -30,7 +30,7 @@ interface DashboardScreenProps {
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({
   isActive = true,
 }) => {
-  const { isRunning, stats, recentLogs, snoozeSeconds, toggleVpn, snoozeVpn, cancelSnooze } = useAdGuardVpn(isActive);
+  const { isRunning, stats, recentLogs, iosDnsMode, snoozeSeconds, toggleVpn, snoozeVpn, cancelSnooze } = useAdGuardVpn(isActive);
   const { isPremium, isTrialActive, isLifetimePurchased, trialExpired, daysRemaining, hoursRemaining, priceString } = useLicense();
   const [auditModalVisible, setAuditModalVisible] = useState(false);
   const [paywallVisible, setPaywallVisible] = useState(false);
@@ -198,7 +198,9 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
               </Text>
               <Text style={styles.statusSubtitle}>
                 {isRunning
-                  ? (isPremium
+                  ? (Platform.OS === 'ios' && iosDnsMode === 'native'
+                      ? 'Native iOS DoH active • System-wide ad blocking'
+                      : isPremium
                       ? `Local VPN active • ${stats.ruleCount.toLocaleString()} rules loaded`
                       : 'Basic Encrypted DNS active • In-app ad blocking paused')
                   : 'Tap switch to protect against ads and trackers'}
@@ -309,6 +311,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
         <PrivacyInsightsCard
           recentLogs={recentLogs}
           blockedQueries={stats.blockedQueries}
+          iosDnsMode={Platform.OS === 'ios' ? iosDnsMode : 'tunnel'}
           locked={trialExpired}
           onUnlockPress={() => {
             setPaywallReason('7-Day Privacy Insights & Tracker Breakdown require Lifetime Pro.');
@@ -398,7 +401,11 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
 
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Interception Mode</Text>
-            <Text style={styles.infoValue}>Local VPN DNS (Port 53)</Text>
+            <Text style={styles.infoValue}>
+              {Platform.OS === 'ios' && iosDnsMode === 'native'
+                ? 'Native iOS DoH (Restrictions & Proxy)'
+                : 'Local VPN DNS (Port 53)'}
+            </Text>
           </View>
 
           <View style={styles.infoDivider} />

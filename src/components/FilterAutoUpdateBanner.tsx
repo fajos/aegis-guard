@@ -59,12 +59,16 @@ export const FilterAutoUpdateBanner: React.FC = () => {
     let isMounted = true;
     const timer = setTimeout(async () => {
       try {
-        const lastUpdateStr = await AsyncStorage.getItem(LAST_UPDATE_KEY);
+        const [lastUpdateStr, stats] = await Promise.all([
+          AsyncStorage.getItem(LAST_UPDATE_KEY),
+          AdGuardVpn.getStatistics().catch(() => null),
+        ]);
         const lastUpdate = lastUpdateStr ? parseInt(lastUpdateStr, 10) : 0;
         const now = Date.now();
+        const needsNativeSeed = (stats?.ruleCount || 0) < 1000;
 
-        // If updated recently (within 4 hours), skip background check to avoid excessive bandwidth
-        if (now - lastUpdate < AUTO_UPDATE_INTERVAL_MS) {
+        // If updated recently (within 4 hours) AND native filter rules are already synced, skip background check
+        if (!needsNativeSeed && now - lastUpdate < AUTO_UPDATE_INTERVAL_MS) {
           return;
         }
 

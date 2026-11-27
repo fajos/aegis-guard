@@ -327,6 +327,8 @@ struct AegisShortcutsProvider: AppShortcutsProvider {
 
 const PACKET_TUNNEL_SWIFT = `import Foundation
 import NetworkExtension
+import Network
+import Security
 import UserNotifications
 import Darwin
 #if canImport(WidgetKit)
@@ -347,8 +349,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     private lazy var dohSession: URLSession = {
         let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 4.0
-        config.timeoutIntervalForResource = 5.0
+        config.timeoutIntervalForRequest = 2.5
+        config.timeoutIntervalForResource = 3.0
+        config.httpMaximumConnectionsPerHost = 12
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         return URLSession(configuration: config)
     }()
@@ -364,6 +367,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private var upstreamProfileName: String = "Aegis Guard DNS (Default)"
 
     private var categoryDomains: Set<String> = []
+    private var downloadedAdDomains: Set<String> = []
     private var excludedDomains: Set<String> = []
     private var allowRules: Set<String> = []
     private var blockRules: Set<String> = []
@@ -463,12 +467,58 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         "coinhive.com",
         "crypto-loot.com",
         "appsflyer.com",
+        "appsflyersdk.com",
         "adjust.com",
         "adjust.io",
+        "app.adjust.com",
         "branch.io",
+        "api2.branch.io",
         "mixpanel.com",
         "amplitude.com",
-        "flurry.com"
+        "flurry.com",
+        "imasdk.googleapis.com",
+        "s0.2mdn.net",
+        "2mdn.net",
+        "mediavisor.doubleclick.net",
+        "adx.g.doubleclick.net",
+        "bid.g.doubleclick.net",
+        "adclick.g.doubleclick.net",
+        "partnerad.l.doubleclick.net",
+        "securepubads.g.doubleclick.net",
+        "pagead.googlesyndication.com",
+        "video-ad-stats.googlesyndication.com",
+        "firebaselogging-pa.googleapis.com",
+        "app-analytics-services.com",
+        "ads.pubmatic.com",
+        "gads.pubmatic.com",
+        "ads.inmobi.com",
+        "api.vungle.com",
+        "ads.api.vungle.com",
+        "d.applovin.com",
+        "rt.applovin.com",
+        "ms.applovin.com",
+        "prod-mediation-events.applovin.com",
+        "outcome-ssp.supersonicads.com",
+        "init.supersonicads.com",
+        "logs.ironsrc.mobi",
+        "ad.smaato.net",
+        "c.amazon-adsystem.com",
+        "aax-us-east.amazon-adsystem.com",
+        "aax-eu.amazon-adsystem.com",
+        "mads.amazon-adsystem.com",
+        "ads-api.twitter.com",
+        "ads.pinterest.com",
+        "tr.snapchat.com",
+        "sc-analytics.snapchat.com",
+        "graph.instagram.com",
+        "connect.facebook.net",
+        "analytics.twitter.com",
+        "adserver.adtech.de",
+        "adservice.google.co.uk",
+        "adservice.google.de",
+        "adservice.google.ca",
+        "adservice.google.com.ng",
+        "crashlyticsreports-pa.googleapis.com"
     ]
 
     private let phishingTokens: [String] = [
@@ -588,6 +638,24 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
             let cats = defaults.stringArray(forKey: "aegis_category_domains") ?? []
             self.categoryDomains = Set(cats.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty })
+
+            if let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: self.appGroupId) {
+                let domainsFile = containerURL.appendingPathComponent("aegis_downloaded_domains.txt")
+                if let rawList = try? String(contentsOf: domainsFile, encoding: .utf8), !rawList.isEmpty {
+                    var dlSet = Set<String>()
+                    dlSet.reserveCapacity(min(26000, rawList.count / 16))
+                    rawList.enumerateLines { line, stop in
+                        let clean = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                        if !clean.isEmpty {
+                            dlSet.insert(clean)
+                            if dlSet.count >= 25000 {
+                                stop = true
+                            }
+                        }
+                    }
+                    self.downloadedAdDomains = dlSet
+                }
+            }
 
             let excl = defaults.stringArray(forKey: "aegis_excluded_domains") ?? []
             self.excludedDomains = Set(excl.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty })
@@ -751,7 +819,19 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         let startTime = CFAbsoluteTimeGetCurrent()
         let qname = parsed.qname.lowercased()
         let qtype = parsed.qtype
-        let qtypeStr = qtype == 28 ? "AAAA" : (qtype == 65 ? "HTTPS" : "A")
+        let qtypeStr = qtype == 28 ? "AAAA" : (qtype == 65 ? "HTTPS" : (qtype == 64 ? "SVCB" : "A"))
+
+        // Block DDR (_dns.resolver.arpa) & browser DoH canary (use-application-dns.net) so iOS/browsers don't bypass the tunnel
+        if qname == "_dns.resolver.arpa" || qname.hasSuffix("._dns.resolver.arpa") {
+            let nodata = buildBlockedDnsResponse(query: dnsQuery, qtype: qtype, mode: "NODATA", rewriteIp: nil)
+            writeReply(nodata)
+            return
+        }
+        if qname == "use-application-dns.net" || qname.hasSuffix(".use-application-dns.net") {
+            let nx = buildBlockedDnsResponse(query: dnsQuery, qtype: qtype, mode: "NXDOMAIN", rewriteIp: nil)
+            writeReply(nx)
+            return
+        }
 
         // Instant zero-network bootstrap for DoH server hostnames to eliminate UDP-53 / NAT64 deadlocks
         let dohHost = URL(string: stateQueue.sync { upstreamDohUrl })?.host?.lowercased() ?? ""
@@ -958,9 +1038,12 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 return EvalDecision(isBlocked: false, countsAsBlock: false, blockingMode: blockingMode, rewriteIp: nil, rule: nil)
             }
 
-            // 8. Built-in Ad & Tracker Domains
+            // 8. Built-in Ad & Tracker Domains + Synced AdGuard Filter Lists
             if let adMatch = matchesDomainSet(domain, set: builtInAdDomains) {
                 return EvalDecision(isBlocked: true, countsAsBlock: true, blockingMode: blockingMode, rewriteIp: nil, rule: "||\\(adMatch)^$important")
+            }
+            if !downloadedAdDomains.isEmpty, let dlMatch = matchesDomainSet(domain, set: downloadedAdDomains) {
+                return EvalDecision(isBlocked: true, countsAsBlock: true, blockingMode: blockingMode, rewriteIp: nil, rule: "||\\(dlMatch)^$adguard-filter")
             }
 
             return EvalDecision(isBlocked: false, countsAsBlock: false, blockingMode: blockingMode, rewriteIp: nil, rule: nil)
@@ -1100,10 +1183,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             let rdataStart = afterName + 10
             guard rdataStart + rdLen <= bytes.count else { break }
 
-            // Check A = 0.0.0.0 or 127.0.0.1, AAAA = :: (all zeros)
+            // Check A = 0.0.0.0, 127.0.0.1, or 94.140.14.35 (AdGuard Family block), AAAA = :: (all zeros)
             if rrType == 1 && rdLen == 4 {
                 if (bytes[rdataStart] == 0 && bytes[rdataStart + 1] == 0 && bytes[rdataStart + 2] == 0 && bytes[rdataStart + 3] == 0) ||
-                   (bytes[rdataStart] == 127 && bytes[rdataStart + 1] == 0 && bytes[rdataStart + 2] == 0 && bytes[rdataStart + 3] == 1) {
+                   (bytes[rdataStart] == 127 && bytes[rdataStart + 1] == 0 && bytes[rdataStart + 2] == 0 && bytes[rdataStart + 3] == 1) ||
+                   (bytes[rdataStart] == 94 && bytes[rdataStart + 1] == 140 && bytes[rdataStart + 2] == 14 && bytes[rdataStart + 3] == 35) {
                     return true
                 }
             } else if rrType == 28 && rdLen == 16 {
@@ -1116,11 +1200,23 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         return false
     }
 
-    // MARK: - DoH & Direct Bootstrap UDP Forwarding
+    // MARK: - Direct-IP DoH, Encrypted DoT (853) & Bootstrap UDP Forwarding
+
+    private func supportsDirectIpDoh(_ bootstrapIp: String, dohUrl: String) -> String? {
+        let lower = dohUrl.lowercased()
+        let directIps: Set<String> = ["94.140.14.14", "94.140.14.15", "1.1.1.1", "1.1.1.3", "8.8.8.8"]
+        if directIps.contains(bootstrapIp) && (lower.contains("dns.adguard-dns.com") || lower.contains("dns-family.adguard-dns.com") || lower.contains("cloudflare-dns.com") || lower.contains("dns.google")) {
+            return "https://\\(bootstrapIp)/dns-query"
+        }
+        return nil
+    }
 
     private func forwardViaDoh(dnsQuery: Data, dohUrl: String, bootstrapIp: String, completion: @escaping (Data?) -> Void) {
-        guard let url = URL(string: dohUrl) else {
-            forwardViaDirectUdp(dnsQuery: dnsQuery, upstreamIp: bootstrapIp, completion: completion)
+        let sniHost = URL(string: dohUrl)?.host ?? "dns.adguard-dns.com"
+        // Use Direct-IP HTTPS URL whenever cert SAN supports IP to eliminate mDNSResponder bootstrap loops & latency spikes
+        let effectiveUrlStr = supportsDirectIpDoh(bootstrapIp, dohUrl: dohUrl) ?? dohUrl
+        guard let url = URL(string: effectiveUrlStr) else {
+            forwardViaDot(dnsQuery: dnsQuery, upstreamIp: bootstrapIp, sniHost: sniHost, completion: completion)
             return
         }
         var request = URLRequest(url: url)
@@ -1137,9 +1233,79 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 completion(data)
                 return
             }
-            // Fallback to direct bootstrap DNS over UDP outside tunnel if DoH fails
-            self?.forwardViaDirectUdp(dnsQuery: dnsQuery, upstreamIp: bootstrapIp, completion: completion)
+            // Fallback 1: Encrypted DNS-over-TLS (port 853) directly to bootstrap IP (immune to UDP:53 hijacking)
+            self?.forwardViaDot(dnsQuery: dnsQuery, upstreamIp: bootstrapIp, sniHost: sniHost, completion: completion)
         }.resume()
+    }
+
+    private func forwardViaDot(dnsQuery: Data, upstreamIp: String, sniHost: String, completion: @escaping (Data?) -> Void) {
+        let tlsOpts = NWProtocolTLS.Options()
+        sec_protocol_options_set_tls_server_name(tlsOpts.securityProtocolOptions, sniHost)
+        let params = NWParameters(tls: tlsOpts)
+        let dotPort = NWEndpoint.Port(rawValue: 853) ?? NWEndpoint.Port.tls
+        let conn = NWConnection(host: NWEndpoint.Host(upstreamIp), port: dotPort, using: params)
+        let queue = DispatchQueue(label: "com.fajostech.aegisguard.dot")
+        var finished = false
+        let lock = NSLock()
+
+        func finish(_ result: Data?) {
+            lock.lock()
+            let already = finished
+            finished = true
+            lock.unlock()
+            guard !already else { return }
+            conn.cancel()
+            if let data = result {
+                completion(data)
+            } else {
+                // Final fallback: direct UDP:53 only if both DoH and DoT failed
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    self?.forwardViaDirectUdp(dnsQuery: dnsQuery, upstreamIp: upstreamIp, completion: completion)
+                }
+            }
+        }
+
+        queue.asyncAfter(deadline: .now() + 2.5) {
+            finish(nil)
+        }
+
+        conn.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                let len = UInt16(dnsQuery.count)
+                var framed = Data([UInt8(len >> 8), UInt8(len & 0xFF)])
+                framed.append(dnsQuery)
+                conn.send(content: framed, completion: .contentProcessed { sendErr in
+                    if sendErr != nil {
+                        finish(nil)
+                        return
+                    }
+                    conn.receive(minimumIncompleteLength: 2, maximumLength: 2) { lenData, _, _, recvErr in
+                        guard recvErr == nil, let lenData = lenData, lenData.count == 2 else {
+                            finish(nil)
+                            return
+                        }
+                        let msgLen = (Int(lenData[0]) << 8) | Int(lenData[1])
+                        guard msgLen >= 12 && msgLen <= 4096 else {
+                            finish(nil)
+                            return
+                        }
+                        conn.receive(minimumIncompleteLength: msgLen, maximumLength: msgLen) { body, _, _, bodyErr in
+                            if bodyErr == nil, let body = body, body.count >= 12 {
+                                finish(body)
+                            } else {
+                                finish(nil)
+                            }
+                        }
+                    }
+                })
+            case .failed(_), .cancelled:
+                finish(nil)
+            default:
+                break
+            }
+        }
+        conn.start(queue: queue)
     }
 
     private func forwardViaDirectUdp(dnsQuery: Data, upstreamIp: String, completion: @escaping (Data?) -> Void) {

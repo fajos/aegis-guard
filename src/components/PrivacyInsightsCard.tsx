@@ -7,6 +7,7 @@ import { CATEGORY_STORAGE_KEYS } from '../utils/backup';
 interface PrivacyInsightsCardProps {
   recentLogs: QueryLogRecord[];
   blockedQueries: number;
+  iosDnsMode?: 'tunnel' | 'native';
   locked?: boolean;
   onUnlockPress?: () => void;
 }
@@ -45,6 +46,7 @@ const BUCKET_COLORS: Record<string, string> = {
 export const PrivacyInsightsCard: React.FC<PrivacyInsightsCardProps> = ({
   recentLogs,
   blockedQueries,
+  iosDnsMode = 'tunnel',
   locked = false,
   onUnlockPress,
 }) => {
@@ -131,6 +133,13 @@ export const PrivacyInsightsCard: React.FC<PrivacyInsightsCardProps> = ({
         </TouchableOpacity>
       ) : (
         <>
+          {iosDnsMode === 'native' && (
+            <View style={{ backgroundColor: '#EFF6FF', borderRadius: 8, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: '#BFDBFE' }}>
+              <Text style={{ fontSize: 11.5, color: '#1E40AF', lineHeight: 16 }}>
+                Native iOS DNS mode uses Apple OS DoH (Restrictions &amp; Proxy). Apple does not expose live query counts or local Category Blockers in Native mode—switch to Local VPN Tunnel in Settings → DNS for live telemetry.
+              </Text>
+            </View>
+          )}
           <Text style={styles.subTitle}>Top Blocked Trackers (Recent Session)</Text>
       {trackerBreakdown.length === 0 ? (
         <Text style={styles.emptyText}>

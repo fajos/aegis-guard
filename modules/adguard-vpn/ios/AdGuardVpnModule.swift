@@ -292,11 +292,8 @@ public class AdGuardVpnModule: Module {
         }
       } else {
         self.clearLegacyDnsProfileIfNeeded {
-          self.findTunnelManager { manager, _ in
-            guard let manager = manager else {
-              promise.resolve(true)
-              return
-            }
+          self.findTunnelManager { existingManager, _ in
+            let manager = existingManager ?? NETunnelProviderManager()
             let config = self.getDnsConfiguration()
             let proto = (manager.protocolConfiguration as? NETunnelProviderProtocol) ?? NETunnelProviderProtocol()
             proto.providerBundleIdentifier = self.tunnelBundleId
@@ -312,6 +309,7 @@ public class AdGuardVpnModule: Module {
             manager.saveToPreferences { _ in
               manager.loadFromPreferences { _ in
                 try? manager.connection.startVPNTunnel()
+                self.notifyTunnel("reload")
                 self.syncWidgetState(isRunning: true, activeProfileName: config.description)
                 self.sendEvent("onVpnStateChanged", ["isRunning": true])
                 promise.resolve(true)
@@ -458,8 +456,9 @@ public class AdGuardVpnModule: Module {
         return !t.isEmpty && !t.hasPrefix("!") && !t.hasPrefix("#")
       }.count
       let catCount = (defaults.stringArray(forKey: "aegis_category_domains") ?? []).count
-      // 50+ built-in tunnel & Safari rules + user rules + active category domains
-      let totalRuleCount = 54 + userRuleCount + catCount
+      let downloadedCount = defaults.integer(forKey: "aegis_downloaded_rule_count")
+      // 115+ built-in tunnel & Safari rules + synced AdGuard filter domains + user rules + category domains
+      let totalRuleCount = 115 + downloadedCount + userRuleCount + catCount
 
       promise.resolve([
         "totalQueries": total,
@@ -521,6 +520,20 @@ public class AdGuardVpnModule: Module {
       self.sharedDefaults.synchronize()
       self.notifyTunnel("reload")
       promise.resolve(true)
+    }
+
+    AsyncFunction("getDnsSettings") { (promise: Promise) in
+      let servers = self.sharedDefaults.stringArray(forKey: "aegis_selected_dns_servers")
+        ?? UserDefaults.standard.stringArray(forKey: "aegis_selected_dns_servers")
+        ?? ["94.140.14.14", "94.140.15.15"]
+      let mode = self.sharedDefaults.string(forKey: "aegis_blocking_mode")
+        ?? UserDefaults.standard.string(forKey: "aegis_blocking_mode")
+        ?? "ADDRESS"
+      promise.resolve([
+        "upstreamDnsServers": servers,
+        "blockingMode": mode,
+        "virtualDnsServer": "198.18.53.53"
+      ])
     }
 
     AsyncFunction("setDnsSettings") { (servers: [String], blockingMode: String, promise: Promise) in
@@ -798,10 +811,164 @@ public class AdGuardVpnModule: Module {
       }
     }
 
+    AsyncFunction("getFilterSubscriptions") { (promise: Promise) in
+      promise.resolve(self.buildSubscriptionList())
+    }
+
+    AsyncFunction("toggleFilterSubscription") { (id: Int, enabled: Bool, promise: Promise) in
+      var disabledIds = Set(self.sharedDefaults.stringArray(forKey: "aegis_disabled_filter_ids") ?? [])
+      let key = String(id)
+      if enabled {
+        disabledIds.remove(key)
+      } else {
+        disabledIds.insert(key)
+      }
+      self.sharedDefaults.set(Array(disabledIds), forKey: "aegis_disabled_filter_ids")
+      self.sharedDefaults.synchronize()
+      promise.resolve(true)
+    }
+
+    AsyncFunction("updateFilterSubscriptions") { (promise: Promise) in
+      DispatchQueue.global(qos: .userInitiated).async {
+        let subs = self.buildSubscriptionList()
+        let priorityOrder = [1, 3, 4, 2]
+        let orderedSubs = subs.sorted { a, b in
+          let ia = priorityOrder.firstIndex(of: (a["id"] as? Int) ?? 99) ?? 99
+          let ib = priorityOrder.firstIndex(of: (b["id"] as? Int) ?? 99) ?? 99
+          return ia < ib
+        }
+        var domainSet = Set<String>()
+        domainSet.reserveCapacity(26000)
+        var countsById: [String: Int] = [:]
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        var updatedTimes: [String: Int64] = [:]
+
+        for sub in orderedSubs {
+          guard let id = sub["id"] as? Int,
+                let isEnabled = sub["isEnabled"] as? Bool, isEnabled,
+                let urlStr = sub["url"] as? String,
+                let url = URL(string: urlStr) else { continue }
+
+          var req = URLRequest(url: url)
+          req.timeoutInterval = 8.0
+          let sem = DispatchSemaphore(value: 0)
+          var downloadedData: Data? = nil
+          URLSession.shared.dataTask(with: req) { data, resp, err in
+            if err == nil, let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) {
+              downloadedData = data
+            }
+            sem.signal()
+          }.resume()
+          _ = sem.wait(timeout: .now() + 9.0)
+
+          guard let data = downloadedData, let text = String(data: data, encoding: .utf8) else { continue }
+          var subCount = 0
+          text.enumerateLines { rawLine, _ in
+            if rawLine.count > 180 { return }
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if line.isEmpty || line.hasPrefix("!") || line.hasPrefix("#") || line.hasPrefix("@@") || line.contains("$badfilter") || line.contains("##") || line.contains("#@#") { return }
+            if line.hasPrefix("||") {
+              var body = String(line.dropFirst(2))
+              if body.hasPrefix("*.") { body = String(body.dropFirst(2)) }
+              while body.hasPrefix(".") { body.removeFirst() }
+              if let sepIdx = body.firstIndex(where: { $0 == "^" || $0 == "$" || $0 == "/" }) {
+                let sepChar = body[sepIdx]
+                if sepChar == "/" { return }
+                body = String(body[..<sepIdx])
+              }
+              let validChars = body.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_") }
+              if validChars && body.contains(".") && body.count <= 120 {
+                subCount += 1
+                if domainSet.count < 25000 {
+                  domainSet.insert(body)
+                }
+              }
+            } else if line.hasPrefix("0.0.0.0 ") || line.hasPrefix("127.0.0.1 ") {
+              let parts = line.split(separator: " ")
+              if parts.count >= 2 {
+                let dom = String(parts[1])
+                let validChars = dom.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_") }
+                if validChars && dom.contains(".") && dom != "0.0.0.0" && dom != "localhost" && dom.count <= 120 {
+                  subCount += 1
+                  if domainSet.count < 25000 {
+                    domainSet.insert(dom)
+                  }
+                }
+              }
+            }
+          }
+          countsById[String(id)] = subCount
+          updatedTimes[String(id)] = nowMs
+        }
+
+        if let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: self.appGroupId) {
+          let fileURL = containerURL.appendingPathComponent("aegis_downloaded_domains.txt")
+          let joined = domainSet.joined(separator: "\n")
+          try? joined.write(to: fileURL, atomically: true, encoding: .utf8)
+        }
+
+        self.sharedDefaults.set(domainSet.count, forKey: "aegis_downloaded_rule_count")
+        self.sharedDefaults.set(countsById, forKey: "aegis_filter_counts_map")
+        self.sharedDefaults.set(updatedTimes, forKey: "aegis_filter_updated_map")
+        self.sharedDefaults.synchronize()
+        self.notifyTunnel("reload")
+        promise.resolve(domainSet.count + 115)
+      }
+    }
+
     AsyncFunction("updateWidgetStats") { (stats: [String: Any], promise: Promise) in
       let config = self.getDnsConfiguration()
       self.syncWidgetState(activeProfileName: config.description, stats: stats)
       promise.resolve(true)
+    }
+  }
+
+  private func buildSubscriptionList() -> [[String: Any]] {
+    let disabledIds = Set(self.sharedDefaults.stringArray(forKey: "aegis_disabled_filter_ids") ?? [])
+    let countsMap = self.sharedDefaults.dictionary(forKey: "aegis_filter_counts_map") ?? [:]
+    let updatedMap = self.sharedDefaults.dictionary(forKey: "aegis_filter_updated_map") ?? [:]
+
+    let catalog: [(Int, String, String, String)] = [
+      (
+        4,
+        "AdGuard DNS Filter",
+        "Comprehensive system-wide ad & tracker domain blocklist optimized for DNS tunnels",
+        "https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt"
+      ),
+      (
+        3,
+        "AdGuard Mobile Ads Filter",
+        "Blocks in-app banner, interstitial, and video ad networks across mobile apps",
+        "https://filters.adtidy.org/extension/chromium/filters/11.txt"
+      ),
+      (
+        2,
+        "AdGuard Tracking Protection",
+        "Stops app telemetry, analytics SDKs, and cross-app profiling beacons",
+        "https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/SpywareFilter/sections/tracking_servers.txt"
+      ),
+      (
+        1,
+        "Peter Lowe's Ad & Tracking List",
+        "High-precision compact host list for low-memory DNS filtering",
+        "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=adblockplus&showintro=0"
+      )
+    ]
+
+    return catalog.map { item in
+      let key = String(item.0)
+      let ruleCountVal = (countsMap[key] as? NSNumber)?.intValue ?? 0
+      let lastUpdatedVal = (updatedMap[key] as? NSNumber)?.int64Value ?? 0
+      return [
+        "id": item.0,
+        "name": item.1,
+        "description": item.2,
+        "url": item.3,
+        "isEnabled": !disabledIds.contains(key),
+        "ruleCount": ruleCountVal,
+        "lastUpdated": lastUpdatedVal,
+        "isCustom": false
+      ]
     }
   }
 }
