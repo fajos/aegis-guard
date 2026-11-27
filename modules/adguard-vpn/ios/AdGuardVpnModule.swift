@@ -831,14 +831,14 @@ public class AdGuardVpnModule: Module {
     AsyncFunction("updateFilterSubscriptions") { (promise: Promise) in
       DispatchQueue.global(qos: .userInitiated).async {
         let subs = self.buildSubscriptionList()
-        let priorityOrder = [1, 3, 4, 2]
+        let priorityOrder = [1, 3, 2, 4]
         let orderedSubs = subs.sorted { a, b in
           let ia = priorityOrder.firstIndex(of: (a["id"] as? Int) ?? 99) ?? 99
           let ib = priorityOrder.firstIndex(of: (b["id"] as? Int) ?? 99) ?? 99
           return ia < ib
         }
         var domainSet = Set<String>()
-        domainSet.reserveCapacity(26000)
+        domainSet.reserveCapacity(13000)
         var countsById: [String: Int] = [:]
         let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
         var updatedTimes: [String: Int64] = [:]
@@ -879,7 +879,7 @@ public class AdGuardVpnModule: Module {
               let validChars = body.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_") }
               if validChars && body.contains(".") && body.count <= 120 {
                 subCount += 1
-                if domainSet.count < 25000 {
+                if domainSet.count < 12000 {
                   domainSet.insert(body)
                 }
               }
@@ -890,7 +890,7 @@ public class AdGuardVpnModule: Module {
                 let validChars = dom.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_") }
                 if validChars && dom.contains(".") && dom != "0.0.0.0" && dom != "localhost" && dom.count <= 120 {
                   subCount += 1
-                  if domainSet.count < 25000 {
+                  if domainSet.count < 12000 {
                     domainSet.insert(dom)
                   }
                 }

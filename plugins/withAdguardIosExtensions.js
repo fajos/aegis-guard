@@ -346,15 +346,22 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     private let stateQueue = DispatchQueue(label: "com.fajostech.aegisguard.tunnel.state")
     private let statsQueue = DispatchQueue(label: "com.fajostech.aegisguard.tunnel.stats")
+    private let proxyQueue = DispatchQueue(label: "com.fajostech.aegisguard.tunnel.proxy", attributes: .concurrent)
 
     private lazy var dohSession: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 2.5
         config.timeoutIntervalForResource = 3.0
         config.httpMaximumConnectionsPerHost = 12
+        config.connectionProxyDictionary = [:] // Never loop internal DoH back through local NEProxySettings
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         return URLSession(configuration: config)
     }()
+
+    private var proxyListener: Network.NWListener?
+    private var proxyPort: UInt16 = 0
+    private var upstreamProxyCache: [String: Bool] = [:]
+    private let proxyCacheLock = NSLock()
 
     // Runtime configuration loaded from shared App Group
     private var isPremium: Bool = true
@@ -544,45 +551,72 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         reloadConfigFromAppGroup()
         loadInitialStats()
 
-        let networkSettings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: tunnelRemoteAddress)
-        networkSettings.mtu = NSNumber(value: 1500)
-
-        let ipv4Settings = NEIPv4Settings(addresses: [tunnelAddress], subnetMasks: ["255.255.255.255"])
-        // Route ONLY the virtual DNS IP (distinct from tunnelRemoteAddress) so normal traffic bypasses userspace
-        ipv4Settings.includedRoutes = [
-            NEIPv4Route(destinationAddress: virtualDnsAddress, subnetMask: "255.255.255.255")
-        ]
-        networkSettings.ipv4Settings = ipv4Settings
-
-        let ipv6Settings = NEIPv6Settings(addresses: [tunnelAddress6], networkPrefixLengths: [128])
-        ipv6Settings.includedRoutes = [
-            NEIPv6Route(destinationAddress: virtualDnsAddress6, networkPrefixLength: 128)
-        ]
-        networkSettings.ipv6Settings = ipv6Settings
-
-        let dnsSettings = NEDNSSettings(servers: [virtualDnsAddress, virtualDnsAddress6])
-        dnsSettings.matchDomains = [""]
-        dnsSettings.matchDomainsNoSearch = true
-        networkSettings.dnsSettings = dnsSettings
-
-        setTunnelNetworkSettings(networkSettings) { [weak self] error in
-            if let error = error {
-                completionHandler(error)
-                return
-            }
+        startLocalProxy { [weak self] boundPort in
             guard let self = self else {
                 completionHandler(nil)
                 return
             }
-            self.isTunnelActive = true
-            self.updateWidgetRunningState(true)
-            self.startPacketLoop()
-            completionHandler(nil)
+
+            let networkSettings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: self.tunnelRemoteAddress)
+            networkSettings.mtu = NSNumber(value: 1500)
+
+            let ipv4Settings = NEIPv4Settings(addresses: [self.tunnelAddress], subnetMasks: ["255.255.255.255"])
+            // Route ONLY the virtual DNS IP (distinct from tunnelRemoteAddress) so raw sockets bypass userspace
+            ipv4Settings.includedRoutes = [
+                NEIPv4Route(destinationAddress: self.virtualDnsAddress, subnetMask: "255.255.255.255")
+            ]
+            networkSettings.ipv4Settings = ipv4Settings
+
+            let ipv6Settings = NEIPv6Settings(addresses: [self.tunnelAddress6], networkPrefixLengths: [128])
+            ipv6Settings.includedRoutes = [
+                NEIPv6Route(destinationAddress: self.virtualDnsAddress6, networkPrefixLength: 128)
+            ]
+            networkSettings.ipv6Settings = ipv6Settings
+
+            let dnsSettings = NEDNSSettings(servers: [self.virtualDnsAddress, self.virtualDnsAddress6])
+            dnsSettings.matchDomains = [""]
+            dnsSettings.matchDomainsNoSearch = true
+            networkSettings.dnsSettings = dnsSettings
+
+            if let port = boundPort {
+                self.proxyPort = port
+                let proxySettings = NEProxySettings()
+                proxySettings.httpEnabled = true
+                proxySettings.httpServer = NEProxyServer(address: "127.0.0.1", port: Int(port))
+                proxySettings.httpsEnabled = true
+                proxySettings.httpsServer = NEProxyServer(address: "127.0.0.1", port: Int(port))
+                proxySettings.autoProxyConfigurationEnabled = false
+                proxySettings.excludeSimpleHostnames = true
+                proxySettings.exceptionList = [
+                    "127.0.0.1", "localhost", "*.local",
+                    "192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12",
+                    "198.18.0.0/16",
+                    "94.140.14.14", "94.140.14.15", "1.1.1.1", "1.1.1.3", "8.8.8.8", "9.9.9.9"
+                ]
+                networkSettings.proxySettings = proxySettings
+            }
+
+            self.setTunnelNetworkSettings(networkSettings) { [weak self] error in
+                if let error = error {
+                    self?.stopLocalProxy()
+                    completionHandler(error)
+                    return
+                }
+                guard let self = self else {
+                    completionHandler(nil)
+                    return
+                }
+                self.isTunnelActive = true
+                self.updateWidgetRunningState(true)
+                self.startPacketLoop()
+                completionHandler(nil)
+            }
         }
     }
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         isTunnelActive = false
+        stopLocalProxy()
         flushStatsSynchronously()
         updateWidgetRunningState(false)
         completionHandler()
@@ -643,12 +677,12 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 let domainsFile = containerURL.appendingPathComponent("aegis_downloaded_domains.txt")
                 if let rawList = try? String(contentsOf: domainsFile, encoding: .utf8), !rawList.isEmpty {
                     var dlSet = Set<String>()
-                    dlSet.reserveCapacity(min(26000, rawList.count / 16))
+                    dlSet.reserveCapacity(min(13000, rawList.count / 16))
                     rawList.enumerateLines { line, stop in
                         let clean = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                         if !clean.isEmpty {
                             dlSet.insert(clean)
-                            if dlSet.count >= 25000 {
+                            if dlSet.count >= 12000 {
                                 stop = true
                             }
                         }
@@ -701,6 +735,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             self.blockRules = parsedBlock
             self.rewriteRules = parsedRewrite
         }
+        proxyCacheLock.lock()
+        self.upstreamProxyCache.removeAll()
+        proxyCacheLock.unlock()
     }
 
     private func stripRuleModifiers(_ raw: String) -> String {
@@ -1306,6 +1343,365 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             }
         }
         conn.start(queue: queue)
+    }
+
+    // MARK: - Local HTTP/HTTPS CONNECT Proxy (Catches Apps & AVPlayer Bypassing Split-Tunnel DNS)
+
+    private func startLocalProxy(completion: @escaping (UInt16?) -> Void) {
+        let portNum: UInt16 = 18080
+        let listenPort = Network.NWEndpoint.Port(rawValue: portNum)!
+        let params = Network.NWParameters.tcp
+        params.allowLocalEndpointReuse = true
+        params.requiredLocalEndpoint = Network.NWEndpoint.hostPort(host: .ipv4(.loopback), port: listenPort)
+
+        do {
+            let listener = try Network.NWListener(using: params, on: listenPort)
+            self.proxyListener = listener
+
+            let lock = NSLock()
+            var finished = false
+            func finish(_ bound: UInt16?) {
+                lock.lock()
+                let already = finished
+                finished = true
+                lock.unlock()
+                if !already {
+                    completion(bound)
+                }
+            }
+
+            listener.stateUpdateHandler = { (state: Network.NWListener.State) in
+                switch state {
+                case .ready:
+                    finish(portNum)
+                case .failed(_), .cancelled:
+                    finish(nil)
+                default:
+                    break
+                }
+            }
+
+            listener.newConnectionHandler = { [weak self] (conn: Network.NWConnection) in
+                self?.handleProxyClient(conn)
+            }
+
+            proxyQueue.asyncAfter(deadline: .now() + 1.5) {
+                finish(nil)
+            }
+            listener.start(queue: proxyQueue)
+        } catch {
+            completion(nil)
+        }
+    }
+
+    private func stopLocalProxy() {
+        proxyListener?.cancel()
+        proxyListener = nil
+    }
+
+    private func handleProxyClient(_ client: Network.NWConnection) {
+        client.start(queue: proxyQueue)
+        readProxyHeader(client: client, accumulated: Data())
+    }
+
+    private func readProxyHeader(client: Network.NWConnection, accumulated: Data) {
+        client.receive(minimumIncompleteLength: 1, maximumLength: 8192) { [weak self] data, _, isComplete, error in
+            guard let self = self else {
+                client.cancel()
+                return
+            }
+            if error != nil {
+                client.cancel()
+                return
+            }
+            var buffer = accumulated
+            if let data = data {
+                buffer.append(data)
+            }
+            let sep = Data([13, 10, 13, 10]) // CRLF CRLF
+            if let range = buffer.range(of: sep) {
+                let headerData = buffer[..<range.upperBound]
+                let leftover = Data(buffer[range.upperBound...])
+                self.processProxyHeader(client: client, headerData: Data(headerData), leftover: leftover)
+                return
+            }
+            if buffer.count > 16384 || isComplete {
+                client.cancel()
+                return
+            }
+            self.readProxyHeader(client: client, accumulated: buffer)
+        }
+    }
+
+    private func processProxyHeader(client: Network.NWConnection, headerData: Data, leftover: Data) {
+        guard let headerText = String(data: headerData, encoding: .utf8) ?? String(data: headerData, encoding: .ascii) else {
+            client.cancel()
+            return
+        }
+        let lines = headerText.components(separatedBy: "\\r\\n")
+        guard let requestLine = lines.first else {
+            client.cancel()
+            return
+        }
+        let parts = requestLine.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+        guard parts.count >= 2 else {
+            client.cancel()
+            return
+        }
+
+        let method = String(parts[0]).uppercased()
+        let rawTarget = String(parts[1])
+        let version = parts.count >= 3 ? String(parts[2]) : "HTTP/1.1"
+        let isConnect = (method == "CONNECT")
+
+        var hostHeader = ""
+        for line in lines.dropFirst() {
+            if line.lowercased().hasPrefix("host:") {
+                hostHeader = line.dropFirst(5).trimmingCharacters(in: .whitespacesAndNewlines)
+                break
+            }
+        }
+
+        var targetHost = ""
+        var targetPort: UInt16 = isConnect ? 443 : 80
+        var forwardPayload: Data? = nil
+
+        if isConnect {
+            if rawTarget.hasPrefix("["), let closeIdx = rawTarget.firstIndex(of: "]") {
+                targetHost = String(rawTarget[rawTarget.index(after: rawTarget.startIndex)..<closeIdx])
+                let afterBracket = rawTarget[rawTarget.index(after: closeIdx)...]
+                if afterBracket.hasPrefix(":"), let p = UInt16(afterBracket.dropFirst()) {
+                    targetPort = p
+                }
+            } else if let colonIdx = rawTarget.lastIndex(of: ":"), let p = UInt16(rawTarget[rawTarget.index(after: colonIdx)...]) {
+                targetHost = String(rawTarget[..<colonIdx])
+                targetPort = p
+            } else {
+                targetHost = rawTarget
+            }
+        } else {
+            var originPath = rawTarget
+            var authority = hostHeader
+            let lowerTarget = rawTarget.lowercased()
+            if lowerTarget.hasPrefix("http://") {
+                let noScheme = String(rawTarget.dropFirst(7))
+                if let slashIdx = noScheme.firstIndex(of: "/") {
+                    authority = String(noScheme[..<slashIdx])
+                    originPath = String(noScheme[slashIdx...])
+                } else {
+                    authority = noScheme
+                    originPath = "/"
+                }
+            } else if lowerTarget.hasPrefix("https://") {
+                let noScheme = String(rawTarget.dropFirst(8))
+                if let slashIdx = noScheme.firstIndex(of: "/") {
+                    authority = String(noScheme[..<slashIdx])
+                    originPath = String(noScheme[slashIdx...])
+                } else {
+                    authority = noScheme
+                    originPath = "/"
+                }
+            }
+
+            if authority.hasPrefix("["), let closeIdx = authority.firstIndex(of: "]") {
+                targetHost = String(authority[authority.index(after: authority.startIndex)..<closeIdx])
+                let afterBracket = authority[authority.index(after: closeIdx)...]
+                if afterBracket.hasPrefix(":"), let p = UInt16(afterBracket.dropFirst()) {
+                    targetPort = p
+                }
+            } else if let colonIdx = authority.lastIndex(of: ":"), let p = UInt16(authority[authority.index(after: colonIdx)...]) {
+                targetHost = String(authority[..<colonIdx])
+                targetPort = p
+            } else {
+                targetHost = authority
+            }
+
+            var rebuilt = ["\\(method) \\(originPath) \\(version)"]
+            for line in lines.dropFirst() {
+                if line.isEmpty { continue }
+                let low = line.lowercased()
+                if low.hasPrefix("proxy-connection:") || low.hasPrefix("connection:") { continue }
+                rebuilt.append(line)
+            }
+            rebuilt.append("Connection: close")
+            let headerStr = rebuilt.joined(separator: "\\r\\n") + "\\r\\n\\r\\n"
+            var combined = Data(headerStr.utf8)
+            if !leftover.isEmpty {
+                combined.append(leftover)
+            }
+            forwardPayload = combined
+        }
+
+        let cleanHost = targetHost.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !cleanHost.isEmpty else {
+            client.cancel()
+            return
+        }
+
+        let startTime = CFAbsoluteTimeGetCurrent()
+        evaluateProxyHost(cleanHost) { [weak self] isBlocked, rule, isThreatAlert in
+            guard let self = self else {
+                client.cancel()
+                return
+            }
+            let latency = max(1, Int((CFAbsoluteTimeGetCurrent() - startTime) * 1000))
+            if isBlocked {
+                let resp = Data("HTTP/1.1 403 Forbidden\\r\\nContent-Length: 0\\r\\nConnection: close\\r\\n\\r\\n".utf8)
+                client.send(content: resp, completion: .contentProcessed { _ in
+                    client.cancel()
+                })
+                if isThreatAlert {
+                    self.postThreatNotification(domain: cleanHost, rule: rule ?? "Phishing Shield")
+                }
+                self.recordQuery(
+                    domain: cleanHost,
+                    qtype: isConnect ? "HTTPS" : "HTTP",
+                    isBlocked: true,
+                    rule: rule,
+                    durationMs: latency,
+                    upstream: "Aegis Local Proxy"
+                )
+                return
+            }
+
+            let effectivePort: UInt16 = (targetPort == 0) ? (isConnect ? 443 : 80) : targetPort
+            let remotePort = Network.NWEndpoint.Port(integerLiteral: effectivePort)
+            let remote = Network.NWConnection(host: Network.NWEndpoint.Host(cleanHost), port: remotePort, using: .tcp)
+
+            let finishLock = NSLock()
+            var tornDown = false
+            func tearDown() {
+                finishLock.lock()
+                let done = tornDown
+                tornDown = true
+                finishLock.unlock()
+                if !done {
+                    client.cancel()
+                    remote.cancel()
+                }
+            }
+
+            remote.stateUpdateHandler = { [weak self] (state: Network.NWConnection.State) in
+                guard let self = self else {
+                    tearDown()
+                    return
+                }
+                switch state {
+                case .ready:
+                    if isConnect {
+                        let ok = Data("HTTP/1.1 200 Connection Established\\r\\n\\r\\n".utf8)
+                        client.send(content: ok, completion: .contentProcessed { sendErr in
+                            if sendErr != nil {
+                                tearDown()
+                                return
+                            }
+                            if !leftover.isEmpty {
+                                remote.send(content: leftover, completion: .contentProcessed { lErr in
+                                    if lErr != nil {
+                                        tearDown()
+                                        return
+                                    }
+                                    self.relayProxy(from: client, to: remote, onEnd: tearDown)
+                                    self.relayProxy(from: remote, to: client, onEnd: tearDown)
+                                })
+                            } else {
+                                self.relayProxy(from: client, to: remote, onEnd: tearDown)
+                                self.relayProxy(from: remote, to: client, onEnd: tearDown)
+                            }
+                        })
+                    } else if let payload = forwardPayload {
+                        remote.send(content: payload, completion: .contentProcessed { sendErr in
+                            if sendErr != nil {
+                                tearDown()
+                                return
+                            }
+                            self.relayProxy(from: client, to: remote, onEnd: tearDown)
+                            self.relayProxy(from: remote, to: client, onEnd: tearDown)
+                        })
+                    } else {
+                        tearDown()
+                    }
+                case .failed(_), .cancelled:
+                    tearDown()
+                default:
+                    break
+                }
+            }
+            remote.start(queue: self.proxyQueue)
+        }
+    }
+
+    private func relayProxy(from source: Network.NWConnection, to dest: Network.NWConnection, onEnd: @escaping () -> Void) {
+        source.receive(minimumIncompleteLength: 1, maximumLength: 32768) { [weak self] data, _, isComplete, error in
+            if let data = data, !data.isEmpty {
+                dest.send(content: data, completion: .contentProcessed { sendErr in
+                    if sendErr != nil || isComplete {
+                        onEnd()
+                    } else {
+                        self?.relayProxy(from: source, to: dest, onEnd: onEnd)
+                    }
+                })
+            } else if isComplete || error != nil {
+                onEnd()
+            } else {
+                self?.relayProxy(from: source, to: dest, onEnd: onEnd)
+            }
+        }
+    }
+
+    private func evaluateProxyHost(_ host: String, completion: @escaping (Bool, String?, Bool) -> Void) {
+        if Network.IPv4Address(host) != nil || host.contains(":") {
+            completion(false, nil, false)
+            return
+        }
+
+        let decision = evaluateDomain(host, qtype: 1)
+        if decision.isBlocked {
+            completion(decision.countsAsBlock, decision.rule, decision.isThreatAlert)
+            return
+        }
+
+        let snap = stateQueue.sync { (isPremium, upstreamDohUrl, upstreamBootstrapIp) }
+        guard snap.0 else {
+            completion(false, nil, false)
+            return
+        }
+
+        proxyCacheLock.lock()
+        let cached = upstreamProxyCache[host]
+        proxyCacheLock.unlock()
+        if let hit = cached {
+            completion(hit, hit ? "Upstream DoH Block" : nil, false)
+            return
+        }
+
+        let dnsQuery = buildDnsAQuery(domain: host)
+        forwardViaDoh(dnsQuery: dnsQuery, dohUrl: snap.1, bootstrapIp: snap.2) { [weak self] resp in
+            guard let self = self else {
+                completion(false, nil, false)
+                return
+            }
+            let blocked = resp.map { self.didUpstreamBlock($0) } ?? false
+            self.proxyCacheLock.lock()
+            if self.upstreamProxyCache.count >= 1500 {
+                self.upstreamProxyCache.removeAll()
+            }
+            self.upstreamProxyCache[host] = blocked
+            self.proxyCacheLock.unlock()
+            completion(blocked, blocked ? "Upstream DoH Block" : nil, false)
+        }
+    }
+
+    private func buildDnsAQuery(domain: String) -> Data {
+        var bytes: [UInt8] = [0xAB, 0xCD, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        for label in domain.split(separator: ".") {
+            let utf8 = Array(label.utf8)
+            guard !utf8.isEmpty && utf8.count <= 63 else { continue }
+            bytes.append(UInt8(utf8.count))
+            bytes.append(contentsOf: utf8)
+        }
+        bytes.append(contentsOf: [0x00, 0x00, 0x01, 0x00, 0x01])
+        return Data(bytes)
     }
 
     private func forwardViaDirectUdp(dnsQuery: Data, upstreamIp: String, completion: @escaping (Data?) -> Void) {
