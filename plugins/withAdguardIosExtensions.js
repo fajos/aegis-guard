@@ -2574,6 +2574,13 @@ function ensureExtensionTarget(proj, options) {
   );
   if (alreadyExists) return;
 
+  if (!proj.hash.project.objects['PBXTargetDependency']) {
+    proj.hash.project.objects['PBXTargetDependency'] = {};
+  }
+  if (!proj.hash.project.objects['PBXContainerItemProxy']) {
+    proj.hash.project.objects['PBXContainerItemProxy'] = {};
+  }
+
   const target = proj.addTarget(targetName, 'app_extension', targetName, bundleId);
   const group = proj.addPbxGroup([], targetName, targetName);
 
@@ -2686,8 +2693,8 @@ function withAdguardIosPodfile(config) {
     const podBlock = [
       '# >>> AegisPacketTunnel Tun2SocksKit begin',
       `target '${TUNNEL_TARGET}' do`,
-      '  use_frameworks! :linkage => :static',
-      "  pod 'Tun2SocksKit', :podspec => File.join(__dir__, 'Tun2SocksKit.podspec')",
+      '  use_modular_headers!',
+      "  pod 'Tun2SocksKit', :podspec => File.join(__dir__, 'Tun2SocksKit.podspec'), :modular_headers => true",
       'end',
       '# <<< AegisPacketTunnel Tun2SocksKit end',
     ].join('\n');
