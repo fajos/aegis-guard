@@ -854,7 +854,7 @@ public class AdGuardVpnModule: Module {
                 let url = URL(string: urlStr) else { continue }
 
           var req = URLRequest(url: url)
-          req.timeoutInterval = 8.0
+          req.timeoutInterval = 25.0
           let sem = DispatchSemaphore(value: 0)
           var downloadedData: Data? = nil
           URLSession.shared.dataTask(with: req) { data, resp, err in
@@ -863,7 +863,7 @@ public class AdGuardVpnModule: Module {
             }
             sem.signal()
           }.resume()
-          _ = sem.wait(timeout: .now() + 9.0)
+          _ = sem.wait(timeout: .now() + 27.0)
 
           guard let data = downloadedData, let text = String(data: data, encoding: .utf8) else { continue }
           var subCount = 0

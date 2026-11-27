@@ -1,12 +1,13 @@
 const fs = require('fs');
 const path = require('path');
 
-let withXcodeProject, withDangerousMod, IOSConfig, createRunOncePlugin;
+let withXcodeProject, withDangerousMod, withPodfile, IOSConfig, createRunOncePlugin;
 
 try {
   const plugins = require('expo/config-plugins');
   withXcodeProject = plugins.withXcodeProject;
   withDangerousMod = plugins.withDangerousMod;
+  withPodfile = plugins.withPodfile;
   IOSConfig = plugins.IOSConfig;
   createRunOncePlugin = plugins.createRunOncePlugin;
 } catch (e) {
@@ -329,6 +330,7 @@ const PACKET_TUNNEL_SWIFT = `import Foundation
 import NetworkExtension
 import Network
 import Security
+import Tun2SocksKit
 import UserNotifications
 import Darwin
 #if canImport(WidgetKit)
@@ -337,7 +339,6 @@ import WidgetKit
 
 class PacketTunnelProvider: NEPacketTunnelProvider {
     private let appGroupId = "${APP_GROUP}"
-    // Keep tunnelRemoteAddress distinct from virtualDnsAddress so iOS does not exclude DNS from utun
     private let tunnelRemoteAddress = "198.18.0.1"
     private let tunnelAddress = "198.18.0.2"
     private let virtualDnsAddress = "198.18.53.53"
@@ -346,22 +347,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     private let stateQueue = DispatchQueue(label: "com.fajostech.aegisguard.tunnel.state")
     private let statsQueue = DispatchQueue(label: "com.fajostech.aegisguard.tunnel.stats")
-    private let proxyQueue = DispatchQueue(label: "com.fajostech.aegisguard.tunnel.proxy", attributes: .concurrent)
 
-    private lazy var dohSession: URLSession = {
-        let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 2.5
-        config.timeoutIntervalForResource = 3.0
-        config.httpMaximumConnectionsPerHost = 12
-        config.connectionProxyDictionary = [:] // Never loop internal DoH back through local NEProxySettings
-        config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        return URLSession(configuration: config)
-    }()
-
-    private var proxyListener: Network.NWListener?
-    private var proxyPort: UInt16 = 0
-    private var upstreamProxyCache: [String: Bool] = [:]
-    private let proxyCacheLock = NSLock()
+    private var socksServer: LocalSocks5Server?
+    private let dnsCacheLock = NSLock()
+    private var dnsCache: [String: (data: Data, expiresAt: TimeInterval, upstreamBlocked: Bool, transport: String)] = [:]
+    private var isStopping: Bool = false
 
     // Runtime configuration loaded from shared App Group
     private var isPremium: Bool = true
@@ -548,28 +538,50 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     ]
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
+        isStopping = false
         reloadConfigFromAppGroup()
         loadInitialStats()
 
-        startLocalProxy { [weak self] boundPort in
+        let server = LocalSocks5Server(provider: self)
+        self.socksServer = server
+        server.start { [weak self] boundPort in
             guard let self = self else {
                 completionHandler(nil)
+                return
+            }
+            guard let port = boundPort, port > 0 else {
+                self.setProxyStatus("failed:socks_bind")
+                let err = NSError(
+                    domain: "com.fajostech.aegisguard.tunnel",
+                    code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "Failed to start local SOCKS5 server"]
+                )
+                completionHandler(err)
                 return
             }
 
             let networkSettings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: self.tunnelRemoteAddress)
             networkSettings.mtu = NSNumber(value: 1500)
 
-            let ipv4Settings = NEIPv4Settings(addresses: [self.tunnelAddress], subnetMasks: ["255.255.255.255"])
-            // Route ONLY the virtual DNS IP (distinct from tunnelRemoteAddress) so raw sockets bypass userspace
-            ipv4Settings.includedRoutes = [
-                NEIPv4Route(destinationAddress: self.virtualDnsAddress, subnetMask: "255.255.255.255")
+            let ipv4Settings = NEIPv4Settings(addresses: [self.tunnelAddress], subnetMasks: ["255.255.255.0"])
+            ipv4Settings.includedRoutes = [NEIPv4Route.default()]
+            ipv4Settings.excludedRoutes = [
+                NEIPv4Route(destinationAddress: "127.0.0.0", subnetMask: "255.0.0.0"),
+                NEIPv4Route(destinationAddress: "10.0.0.0", subnetMask: "255.0.0.0"),
+                NEIPv4Route(destinationAddress: "172.16.0.0", subnetMask: "255.240.0.0"),
+                NEIPv4Route(destinationAddress: "192.168.0.0", subnetMask: "255.255.0.0"),
+                NEIPv4Route(destinationAddress: "169.254.0.0", subnetMask: "255.255.0.0"),
+                NEIPv4Route(destinationAddress: "224.0.0.0", subnetMask: "240.0.0.0"),
+                NEIPv4Route(destinationAddress: "255.255.255.255", subnetMask: "255.255.255.255")
             ]
             networkSettings.ipv4Settings = ipv4Settings
 
-            let ipv6Settings = NEIPv6Settings(addresses: [self.tunnelAddress6], networkPrefixLengths: [128])
-            ipv6Settings.includedRoutes = [
-                NEIPv6Route(destinationAddress: self.virtualDnsAddress6, networkPrefixLength: 128)
+            let ipv6Settings = NEIPv6Settings(addresses: [self.tunnelAddress6], networkPrefixLengths: [64])
+            ipv6Settings.includedRoutes = [NEIPv6Route.default()]
+            ipv6Settings.excludedRoutes = [
+                NEIPv6Route(destinationAddress: "::1", networkPrefixLength: 128),
+                NEIPv6Route(destinationAddress: "fe80::", networkPrefixLength: 10),
+                NEIPv6Route(destinationAddress: "ff00::", networkPrefixLength: 8)
             ]
             networkSettings.ipv6Settings = ipv6Settings
 
@@ -578,27 +590,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             dnsSettings.matchDomainsNoSearch = true
             networkSettings.dnsSettings = dnsSettings
 
-            if let port = boundPort {
-                self.proxyPort = port
-                let proxySettings = NEProxySettings()
-                proxySettings.httpEnabled = true
-                proxySettings.httpServer = NEProxyServer(address: "127.0.0.1", port: Int(port))
-                proxySettings.httpsEnabled = true
-                proxySettings.httpsServer = NEProxyServer(address: "127.0.0.1", port: Int(port))
-                proxySettings.autoProxyConfigurationEnabled = false
-                proxySettings.excludeSimpleHostnames = true
-                proxySettings.exceptionList = [
-                    "127.0.0.1", "localhost", "*.local",
-                    "192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12",
-                    "198.18.0.0/16",
-                    "94.140.14.14", "94.140.14.15", "1.1.1.1", "1.1.1.3", "8.8.8.8", "9.9.9.9"
-                ]
-                networkSettings.proxySettings = proxySettings
-            }
-
             self.setTunnelNetworkSettings(networkSettings) { [weak self] error in
                 if let error = error {
-                    self?.stopLocalProxy()
+                    self?.socksServer?.stop()
+                    self?.socksServer = nil
+                    self?.setProxyStatus("failed:settings")
                     completionHandler(error)
                     return
                 }
@@ -607,16 +603,57 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                     return
                 }
                 self.isTunnelActive = true
+                self.setProxyStatus("full-tunnel:socks5:\\(port)")
                 self.updateWidgetRunningState(true)
-                self.startPacketLoop()
+                self.startHevSocks5Tunnel(socksPort: port)
                 completionHandler(nil)
+            }
+        }
+    }
+
+    private func startHevSocks5Tunnel(socksPort: UInt16) {
+        let yamlConfig = """
+        tunnel:
+          mtu: 1500
+        socks5:
+          port: \\(socksPort)
+          address: 127.0.0.1
+          udp: 'tcp'
+        misc:
+          task-stack-size: 24576
+          tcp-buffer-size: 8192
+          max-session-count: 512
+          connect-timeout: 5000
+          tcp-read-write-timeout: 120000
+          udp-read-write-timeout: 30000
+          log-file: stderr
+          log-level: error
+          limit-nofile: 65535
+        """
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            for attempt in 0..<20 {
+                if self.isStopping || !self.isTunnelActive { return }
+                let code = Socks5Tunnel.run(withConfig: .string(content: yamlConfig))
+                if code != -1 || attempt == 19 {
+                    if code != 0 && self.isTunnelActive && !self.isStopping {
+                        self.setProxyStatus("tunnel-exit:\\(code)")
+                    }
+                    return
+                }
+                Thread.sleep(forTimeInterval: 0.05)
             }
         }
     }
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         isTunnelActive = false
-        stopLocalProxy()
+        isStopping = true
+        Socks5Tunnel.quit()
+        socksServer?.stop()
+        socksServer = nil
+        setProxyStatus("stopped")
         flushStatsSynchronously()
         updateWidgetRunningState(false)
         completionHandler()
@@ -735,9 +772,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             self.blockRules = parsedBlock
             self.rewriteRules = parsedRewrite
         }
-        proxyCacheLock.lock()
-        self.upstreamProxyCache.removeAll()
-        proxyCacheLock.unlock()
+        dnsCacheLock.lock()
+        self.dnsCache.removeAll()
+        dnsCacheLock.unlock()
     }
 
     private func stripRuleModifiers(_ raw: String) -> String {
@@ -779,80 +816,33 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         return ("https://dns.adguard-dns.com/dns-query", "94.140.14.14", "Aegis Guard DNS (Default)")
     }
 
-    // MARK: - Packet Loop & DNS Interception
+    // MARK: - DNS Interception & Bypass-Safe Parameters
 
-    private func startPacketLoop() {
-        packetFlow.readPackets { [weak self] packets, protocols in
-            guard let self = self, self.isTunnelActive else { return }
-
-            for i in 0..<packets.count {
-                let packet = packets[i]
-                let proto = protocols[i].intValue
-                if proto == Int(AF_INET) {
-                    self.handleIPv4Packet(packet)
-                } else if proto == Int(AF_INET6) {
-                    self.handleIPv6Packet(packet)
-                }
+    func makeBypassParameters(tcp: Bool, tls: Bool = false) -> Network.NWParameters {
+        let params: Network.NWParameters
+        if tcp {
+            if tls {
+                params = Network.NWParameters.tls
+            } else {
+                params = Network.NWParameters.tcp
             }
-
-            if self.isTunnelActive {
-                self.startPacketLoop()
+            if let tcpOpts = params.defaultProtocolStack.transportProtocol as? Network.NWProtocolTCP.Options {
+                tcpOpts.enableKeepalive = true
+                tcpOpts.noDelay = true
             }
+        } else {
+            params = Network.NWParameters.udp
         }
+        params.prohibitedInterfaceTypes = [.other, .loopback]
+        params.preferNoProxies = true
+        return params
     }
 
-    private func handleIPv4Packet(_ packet: Data) {
-        let bytes = [UInt8](packet)
-        guard bytes.count >= 28 else { return }
-        let version = bytes[0] >> 4
-        guard version == 4 else { return }
-        let ihl = Int(bytes[0] & 0x0F) * 4
-        guard ihl >= 20, bytes.count >= ihl + 8 else { return }
-        guard bytes[9] == 17 else { return } // UDP only
-
-        let srcIP = Array(bytes[12..<16])
-        let dstIP = Array(bytes[16..<20])
-        let srcPort = (UInt16(bytes[ihl]) << 8) | UInt16(bytes[ihl + 1])
-        let dstPort = (UInt16(bytes[ihl + 2]) << 8) | UInt16(bytes[ihl + 3])
-
-        guard dstPort == 53 else { return }
-
-        let dnsOffset = ihl + 8
-        guard bytes.count >= dnsOffset + 12 else { return }
-        let dnsQuery = Data(bytes[dnsOffset...])
-
-        processDnsQuery(dnsQuery: dnsQuery) { responseDns in
-            let reply = self.buildIPv4UdpPacket(srcIP: dstIP, dstIP: srcIP, srcPort: dstPort, dstPort: srcPort, payload: responseDns)
-            self.packetFlow.writePackets([reply], withProtocols: [NSNumber(value: AF_INET)])
+    func processDnsQuery(dnsQuery: Data, writeReply: @escaping (Data) -> Void) {
+        guard let parsed = parseDnsQuestion(dnsQuery) else {
+            writeReply(buildServFailResponse(query: dnsQuery))
+            return
         }
-    }
-
-    private func handleIPv6Packet(_ packet: Data) {
-        let bytes = [UInt8](packet)
-        guard bytes.count >= 48 else { return }
-        let version = bytes[0] >> 4
-        guard version == 6 else { return }
-        guard bytes[6] == 17 else { return } // UDP only (no extension headers)
-
-        let srcIP = Array(bytes[8..<24])
-        let dstIP = Array(bytes[24..<40])
-        let srcPort = (UInt16(bytes[40]) << 8) | UInt16(bytes[41])
-        let dstPort = (UInt16(bytes[42]) << 8) | UInt16(bytes[43])
-
-        guard dstPort == 53 else { return }
-
-        let dnsOffset = 48
-        guard bytes.count >= dnsOffset + 12 else { return }
-        let dnsQuery = Data(bytes[dnsOffset...])
-
-        processDnsQuery(dnsQuery: dnsQuery) { responseDns in
-            let reply = self.buildIPv6UdpPacket(srcIP: dstIP, dstIP: srcIP, srcPort: dstPort, dstPort: srcPort, payload: responseDns)
-            self.packetFlow.writePackets([reply], withProtocols: [NSNumber(value: AF_INET6)])
-        }
-    }
-
-    private func processDnsQuery(dnsQuery: Data, writeReply: @escaping (Data) -> Void) {
-        guard let parsed = parseDnsQuestion(dnsQuery) else { return }
         let startTime = CFAbsoluteTimeGetCurrent()
         let qname = parsed.qname.lowercased()
         let qtype = parsed.qtype
@@ -870,7 +860,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
 
-        // Instant zero-network bootstrap for DoH server hostnames to eliminate UDP-53 / NAT64 deadlocks
+        // Fast bootstrap for upstream DoH hostnames over physical interface
         let dohHost = URL(string: stateQueue.sync { upstreamDohUrl })?.host?.lowercased() ?? ""
         if !dohHost.isEmpty && (qname == dohHost || qname.hasSuffix("." + dohHost)) {
             if let cachedIp = knownDohBootstrapIp(for: qname) {
@@ -879,9 +869,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 return
             }
             let bootIp = stateQueue.sync { upstreamBootstrapIp }
-            forwardViaDirectUdp(dnsQuery: dnsQuery, upstreamIp: bootIp) { responseData, _ in
+            forwardViaDirectUdp(dnsQuery: dnsQuery, upstreamIp: bootIp) { [weak self] responseData, _ in
                 if let resp = responseData {
                     writeReply(resp)
+                } else if let self = self {
+                    writeReply(self.buildServFailResponse(query: dnsQuery))
                 }
             }
             return
@@ -904,13 +896,58 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
 
-        // Allowed locally -> forward over Direct-IP DoH / DoT / UDP fallback
         let snapshot = stateQueue.sync { (upstreamDohUrl, upstreamBootstrapIp, upstreamProfileName) }
-        forwardViaDoh(dnsQuery: dnsQuery, dohUrl: snapshot.0, bootstrapIp: snapshot.1) { responseData, transport in
+        let cacheKey = "\\(qname)|\\(qtype)"
+        let now = CFAbsoluteTimeGetCurrent()
+
+        dnsCacheLock.lock()
+        let cachedEntry = dnsCache[cacheKey]
+        dnsCacheLock.unlock()
+
+        if let entry = cachedEntry, now < entry.expiresAt, entry.data.count >= 12 {
+            var patched = [UInt8](entry.data)
+            let qBytes = [UInt8](dnsQuery)
+            if qBytes.count >= 2 {
+                patched[0] = qBytes[0]
+                patched[1] = qBytes[1]
+            }
+            writeReply(Data(patched))
+            recordQuery(
+                domain: qname,
+                qtype: qtypeStr,
+                isBlocked: entry.upstreamBlocked,
+                rule: entry.upstreamBlocked ? "Upstream \\(entry.transport) Block" : nil,
+                durationMs: 1,
+                upstream: "\\(snapshot.2) [\\(entry.transport)/Cache]"
+            )
+            return
+        }
+
+        // Allowed locally -> forward over Direct-IP DoH / DoT / UDP fallback (bound off utun)
+        forwardViaDoh(dnsQuery: dnsQuery, dohUrl: snapshot.0, bootstrapIp: snapshot.1) { [weak self] responseData, transport in
+            guard let self = self else { return }
             let latency = max(1, Int((CFAbsoluteTimeGetCurrent() - startTime) * 1000))
-            guard let resp = responseData else { return }
+            guard let resp = responseData else {
+                writeReply(self.buildServFailResponse(query: dnsQuery))
+                return
+            }
 
             let upstreamBlocked = self.didUpstreamBlock(resp)
+            let ttl = self.extractDnsMinTtl(resp)
+            if ttl > 0 {
+                self.dnsCacheLock.lock()
+                if self.dnsCache.count >= 1024 {
+                    self.dnsCache.removeAll()
+                }
+                self.dnsCache[cacheKey] = (
+                    data: Data(resp),
+                    expiresAt: CFAbsoluteTimeGetCurrent() + ttl,
+                    upstreamBlocked: upstreamBlocked,
+                    transport: transport
+                )
+                self.dnsCacheLock.unlock()
+            }
+
             writeReply(resp)
             self.recordQuery(
                 domain: qname,
@@ -1237,7 +1274,78 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         return false
     }
 
-    // MARK: - Direct-IP DoH, Encrypted DoT (853) & Bootstrap UDP Forwarding
+    // MARK: - Direct-IP DoH, Encrypted DoT (853), UDP Fallback & DNS Cache
+
+    private func buildServFailResponse(query: Data) -> Data {
+        let qBytes = [UInt8](query)
+        guard qBytes.count >= 12 else { return Data() }
+        var idx = 12
+        while idx < qBytes.count {
+            let len = Int(qBytes[idx])
+            idx += 1
+            if len == 0 { break }
+            if (len & 0xC0) != 0 {
+                idx += 1
+                break
+            }
+            idx += len
+        }
+        let questionEnd = min(idx + 4, qBytes.count)
+        let hasQuestion = questionEnd > 12 && questionEnd <= qBytes.count
+        var resp: [UInt8] = [
+            qBytes[0], qBytes[1],
+            0x80 | (qBytes[2] & 0x01),
+            0x82, // SERVFAIL
+            0x00, hasQuestion ? 0x01 : 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        ]
+        if hasQuestion {
+            resp.append(contentsOf: qBytes[12..<questionEnd])
+        }
+        return Data(resp)
+    }
+
+    private func extractDnsMinTtl(_ dnsResp: Data) -> TimeInterval {
+        let bytes = [UInt8](dnsResp)
+        guard bytes.count >= 12 else { return 0 }
+        let rcode = bytes[3] & 0x0F
+        if rcode == 3 { return 30.0 } // Brief negative cache for NXDOMAIN
+        guard rcode == 0 else { return 0 }
+
+        let qdCount = Int((UInt16(bytes[4]) << 8) | UInt16(bytes[5]))
+        let anCount = Int((UInt16(bytes[6]) << 8) | UInt16(bytes[7]))
+        guard anCount > 0 else { return 30.0 } // Brief cache for NODATA/empty answer
+
+        var idx = 12
+        for _ in 0..<qdCount {
+            guard let nextIdx = skipDnsName(in: bytes, from: idx), nextIdx + 4 <= bytes.count else {
+                return 60.0
+            }
+            idx = nextIdx + 4
+        }
+
+        var minTtl: UInt32 = 300
+        var found = false
+        for _ in 0..<anCount {
+            guard let afterName = skipDnsName(in: bytes, from: idx), afterName + 10 <= bytes.count else {
+                break
+            }
+            let ttl = (UInt32(bytes[afterName + 4]) << 24)
+                | (UInt32(bytes[afterName + 5]) << 16)
+                | (UInt32(bytes[afterName + 6]) << 8)
+                | UInt32(bytes[afterName + 7])
+            let rdLen = Int((UInt16(bytes[afterName + 8]) << 8) | UInt16(bytes[afterName + 9]))
+            let rdataStart = afterName + 10
+            guard rdataStart + rdLen <= bytes.count else { break }
+            if ttl < minTtl {
+                minTtl = ttl
+            }
+            found = true
+            idx = rdataStart + rdLen
+        }
+        guard found else { return 60.0 }
+        return min(300.0, max(15.0, Double(minTtl)))
+    }
 
     private func supportsDirectIpDoh(_ bootstrapIp: String, dohUrl: String) -> String? {
         let lower = dohUrl.lowercased()
@@ -1248,56 +1356,147 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         return nil
     }
 
+    private func decodeChunkedHttpBody(_ raw: Data) -> (body: Data, isFinished: Bool)? {
+        let bytes = [UInt8](raw)
+        var offset = 0
+        var decoded = Data()
+        while offset < bytes.count {
+            var lineEnd: Int? = nil
+            var i = offset
+            while i + 1 < bytes.count {
+                if bytes[i] == 13 && bytes[i + 1] == 10 {
+                    lineEnd = i
+                    break
+                }
+                i += 1
+            }
+            guard let crlf = lineEnd else {
+                return (decoded, false)
+            }
+            let sizeStr = String(bytes: bytes[offset..<crlf], encoding: .ascii)?
+                .split(separator: ";").first?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard let chunkSize = Int(sizeStr, radix: 16), chunkSize >= 0 else {
+                return nil
+            }
+            offset = crlf + 2
+            if chunkSize == 0 {
+                return (decoded, true)
+            }
+            guard offset + chunkSize + 2 <= bytes.count else {
+                return (decoded, false)
+            }
+            decoded.append(contentsOf: bytes[offset..<(offset + chunkSize)])
+            offset += chunkSize + 2
+        }
+        return (decoded, false)
+    }
+
+    private func parseHttpDohResponse(accumulated: Data, isComplete: Bool) -> (done: Bool, dnsBody: Data?) {
+        let sep = Data([13, 10, 13, 10])
+        guard let sepRange = accumulated.range(of: sep) else {
+            return isComplete ? (true, nil) : (false, nil)
+        }
+        let headerBytes = Data(accumulated[..<sepRange.lowerBound])
+        let bodyData = Data(accumulated[sepRange.upperBound...])
+        guard let headerText = String(data: headerBytes, encoding: .utf8) ?? String(data: headerBytes, encoding: .ascii) else {
+            return (true, nil)
+        }
+        let lines = headerText.components(separatedBy: "\\r\\n")
+        guard let statusLine = lines.first else { return (true, nil) }
+        let statusParts = statusLine.split(separator: " ", omittingEmptySubsequences: true)
+        guard statusParts.count >= 2, let code = Int(statusParts[1]), (200...299).contains(code) else {
+            return (true, nil)
+        }
+
+        var contentLength: Int? = nil
+        var isChunked = false
+        for line in lines.dropFirst() {
+            let low = line.lowercased()
+            if low.hasPrefix("content-length:") {
+                let val = line.dropFirst(15).trimmingCharacters(in: .whitespacesAndNewlines)
+                contentLength = Int(val)
+            } else if low.hasPrefix("transfer-encoding:") && low.contains("chunked") {
+                isChunked = true
+            }
+        }
+
+        if let expectedLen = contentLength {
+            if bodyData.count >= expectedLen {
+                let clipped = Data(bodyData.prefix(expectedLen))
+                return (true, clipped.count >= 12 ? clipped : nil)
+            }
+            return isComplete ? (true, nil) : (false, nil)
+        }
+        if isChunked {
+            if let chunked = decodeChunkedHttpBody(bodyData) {
+                if chunked.isFinished {
+                    return (true, chunked.body.count >= 12 ? chunked.body : nil)
+                }
+                return isComplete ? (true, chunked.body.count >= 12 ? chunked.body : nil) : (false, nil)
+            }
+            return (true, nil)
+        }
+        if isComplete {
+            return (true, bodyData.count >= 12 ? bodyData : nil)
+        }
+        return (false, nil)
+    }
+
     private func forwardViaDoh(dnsQuery: Data, dohUrl: String, bootstrapIp: String, completion: @escaping (Data?, String) -> Void) {
         let sniHost = URL(string: dohUrl)?.host ?? "dns.adguard-dns.com"
-        // Use Direct-IP HTTPS URL whenever cert SAN supports IP to eliminate mDNSResponder bootstrap loops & latency spikes
         let effectiveUrlStr = supportsDirectIpDoh(bootstrapIp, dohUrl: dohUrl) ?? dohUrl
-        guard let url = URL(string: effectiveUrlStr) else {
+        guard let comps = URLComponents(string: effectiveUrlStr),
+              let connectHost = comps.host, !connectHost.isEmpty,
+              let dohPort = Network.NWEndpoint.Port(rawValue: UInt16(comps.port ?? 443)) else {
             forwardViaDot(dnsQuery: dnsQuery, upstreamIp: bootstrapIp, sniHost: sniHost, completion: completion)
             return
         }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.httpBody = dnsQuery
-        request.setValue("application/dns-message", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/dns-message", forHTTPHeaderField: "Accept")
 
-        dohSession.dataTask(with: request) { [weak self] data, response, error in
-            if let data = data, error == nil,
-               let httpResp = response as? HTTPURLResponse,
-               (200...299).contains(httpResp.statusCode),
-               data.count >= 12 {
-                completion(data, "DoH")
-                return
-            }
-            // Fallback 1: Encrypted DNS-over-TLS (port 853) directly to bootstrap IP (immune to UDP:53 hijacking)
-            self?.forwardViaDot(dnsQuery: dnsQuery, upstreamIp: bootstrapIp, sniHost: sniHost, completion: completion)
-        }.resume()
-    }
+        let path = comps.percentEncodedPath.isEmpty ? "/dns-query" : comps.percentEncodedPath
+        let queryPart = comps.percentEncodedQuery.map { "?\\($0)" } ?? ""
+        let reqTarget = "\\(path)\\(queryPart)"
 
-    private func forwardViaDot(dnsQuery: Data, upstreamIp: String, sniHost: String, completion: @escaping (Data?, String) -> Void) {
         let tlsOpts = Network.NWProtocolTLS.Options()
         sec_protocol_options_set_tls_server_name(tlsOpts.securityProtocolOptions, sniHost)
-        let params = Network.NWParameters(tls: tlsOpts)
-        let dotPort: Network.NWEndpoint.Port = 853
-        let conn = Network.NWConnection(host: Network.NWEndpoint.Host(upstreamIp), port: dotPort, using: params)
-        let queue = DispatchQueue(label: "com.fajostech.aegisguard.dot")
+        sec_protocol_options_add_tls_application_protocol(tlsOpts.securityProtocolOptions, "http/1.1")
+        let tcpOpts = Network.NWProtocolTCP.Options()
+        tcpOpts.noDelay = true
+        let params = Network.NWParameters(tls: tlsOpts, tcp: tcpOpts)
+        params.prohibitedInterfaceTypes = [.other, .loopback]
+        params.preferNoProxies = true
+
+        let conn = Network.NWConnection(host: Network.NWEndpoint.Host(connectHost), port: dohPort, using: params)
+        let queue = DispatchQueue(label: "com.fajostech.aegisguard.doh")
         var finished = false
-        let lock = NSLock()
+        var accumulated = Data()
 
         func finish(_ result: Data?) {
-            lock.lock()
-            let already = finished
+            guard !finished else { return }
             finished = true
-            lock.unlock()
-            guard !already else { return }
             conn.cancel()
-            if let data = result {
-                completion(data, "DoT")
+            if let data = result, data.count >= 12 {
+                completion(data, "DoH")
             } else {
-                // Final fallback: direct UDP:53 only if both DoH and DoT failed
-                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                    self?.forwardViaDirectUdp(dnsQuery: dnsQuery, upstreamIp: upstreamIp, completion: completion)
+                self.forwardViaDot(dnsQuery: dnsQuery, upstreamIp: bootstrapIp, sniHost: sniHost, completion: completion)
+            }
+        }
+
+        func readHttpChunks() {
+            conn.receive(minimumIncompleteLength: 1, maximumLength: 16384) { (chunk: Data?, _ctx: Network.NWConnection.ContentContext?, isComplete: Bool, recvErr: Network.NWError?) in
+                guard !finished else { return }
+                if let chunk = chunk, !chunk.isEmpty {
+                    accumulated.append(chunk)
+                    if accumulated.count > 65536 {
+                        finish(nil)
+                        return
+                    }
+                }
+                let parsed = self.parseHttpDohResponse(accumulated: accumulated, isComplete: isComplete || recvErr != nil)
+                if parsed.done {
+                    finish(parsed.dnsBody)
+                } else {
+                    readHttpChunks()
                 }
             }
         }
@@ -1307,27 +1506,81 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
 
         conn.stateUpdateHandler = { (state: Network.NWConnection.State) in
+            guard !finished else { return }
+            switch state {
+            case .ready:
+                let hdr = "POST \\(reqTarget) HTTP/1.1\\r\\nHost: \\(sniHost)\\r\\nUser-Agent: AegisGuard/1.0\\r\\nContent-Type: application/dns-message\\r\\nAccept: application/dns-message\\r\\nContent-Length: \\(dnsQuery.count)\\r\\nConnection: close\\r\\n\\r\\n"
+                var payload = Data(hdr.utf8)
+                payload.append(dnsQuery)
+                conn.send(content: payload, completion: .contentProcessed { (sendErr: Network.NWError?) in
+                    if sendErr != nil {
+                        finish(nil)
+                        return
+                    }
+                    readHttpChunks()
+                })
+            case .failed(_), .cancelled:
+                finish(nil)
+            default:
+                break
+            }
+        }
+        conn.start(queue: queue)
+    }
+
+    private func forwardViaDot(dnsQuery: Data, upstreamIp: String, sniHost: String, completion: @escaping (Data?, String) -> Void) {
+        let tlsOpts = Network.NWProtocolTLS.Options()
+        sec_protocol_options_set_tls_server_name(tlsOpts.securityProtocolOptions, sniHost)
+        let tcpOpts = Network.NWProtocolTCP.Options()
+        tcpOpts.noDelay = true
+        let params = Network.NWParameters(tls: tlsOpts, tcp: tcpOpts)
+        params.prohibitedInterfaceTypes = [.other, .loopback]
+        params.preferNoProxies = true
+
+        let dotPort = Network.NWEndpoint.Port(rawValue: 853)!
+        let conn = Network.NWConnection(host: Network.NWEndpoint.Host(upstreamIp), port: dotPort, using: params)
+        let queue = DispatchQueue(label: "com.fajostech.aegisguard.dot")
+        var finished = false
+
+        func finish(_ result: Data?) {
+            guard !finished else { return }
+            finished = true
+            conn.cancel()
+            if let data = result, data.count >= 12 {
+                completion(data, "DoT")
+            } else {
+                self.forwardViaDirectUdp(dnsQuery: dnsQuery, upstreamIp: upstreamIp, completion: completion)
+            }
+        }
+
+        queue.asyncAfter(deadline: .now() + 2.5) {
+            finish(nil)
+        }
+
+        conn.stateUpdateHandler = { (state: Network.NWConnection.State) in
+            guard !finished else { return }
             switch state {
             case .ready:
                 let len = UInt16(dnsQuery.count)
                 var framed = Data([UInt8(len >> 8), UInt8(len & 0xFF)])
                 framed.append(dnsQuery)
-                conn.send(content: framed, completion: .contentProcessed { sendErr in
+                conn.send(content: framed, completion: .contentProcessed { (sendErr: Network.NWError?) in
                     if sendErr != nil {
                         finish(nil)
                         return
                     }
-                    conn.receive(minimumIncompleteLength: 2, maximumLength: 2) { lenData, _, _, recvErr in
+                    conn.receive(minimumIncompleteLength: 2, maximumLength: 2) { (lenData: Data?, _ctx: Network.NWConnection.ContentContext?, _isComplete: Bool, recvErr: Network.NWError?) in
                         guard recvErr == nil, let lenData = lenData, lenData.count == 2 else {
                             finish(nil)
                             return
                         }
-                        let msgLen = (Int(lenData[0]) << 8) | Int(lenData[1])
+                        let lenBytes = [UInt8](lenData)
+                        let msgLen = (Int(lenBytes[0]) << 8) | Int(lenBytes[1])
                         guard msgLen >= 12 && msgLen <= 4096 else {
                             finish(nil)
                             return
                         }
-                        conn.receive(minimumIncompleteLength: msgLen, maximumLength: msgLen) { body, _, _, bodyErr in
+                        conn.receive(minimumIncompleteLength: msgLen, maximumLength: msgLen) { (body: Data?, _ctx2: Network.NWConnection.ContentContext?, _isComplete2: Bool, bodyErr: Network.NWError?) in
                             if bodyErr == nil, let body = body, body.count >= 12 {
                                 finish(body)
                             } else {
@@ -1345,534 +1598,58 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         conn.start(queue: queue)
     }
 
-    // MARK: - Local HTTP/HTTPS CONNECT Proxy (Catches Apps & AVPlayer Bypassing Split-Tunnel DNS)
-
-    private func setProxyStatus(_ status: String) {
+    func setProxyStatus(_ status: String) {
         if let defaults = UserDefaults(suiteName: appGroupId) {
             defaults.set(status, forKey: "aegis_proxy_status")
             defaults.synchronize()
         }
     }
 
-    private func startLocalProxy(completion: @escaping (UInt16?) -> Void) {
-        let portNum: UInt16 = 18080
-        let listenPort = Network.NWEndpoint.Port(integerLiteral: portNum)
-        let params = Network.NWParameters.tcp
-        params.allowLocalEndpointReuse = true
-
-        do {
-            let listener = try Network.NWListener(using: params, on: listenPort)
-            self.proxyListener = listener
-
-            let lock = NSLock()
-            var finished = false
-            func finish(_ bound: UInt16?, statusText: String) {
-                lock.lock()
-                let already = finished
-                finished = true
-                lock.unlock()
-                if !already {
-                    self.setProxyStatus(statusText)
-                    completion(bound)
-                }
-            }
-
-            listener.stateUpdateHandler = { (state: Network.NWListener.State) in
-                switch state {
-                case .ready:
-                    finish(portNum, statusText: "ready:\\(portNum)")
-                case .failed(let err):
-                    finish(nil, statusText: "failed:\\(err.localizedDescription)")
-                case .cancelled:
-                    finish(nil, statusText: "cancelled")
-                default:
-                    break
-                }
-            }
-
-            listener.newConnectionHandler = { [weak self] (conn: Network.NWConnection) in
-                self?.handleProxyClient(conn)
-            }
-
-            proxyQueue.asyncAfter(deadline: .now() + 1.5) {
-                finish(nil, statusText: "timeout")
-            }
-            listener.start(queue: proxyQueue)
-        } catch {
-            setProxyStatus("catch:\\(error.localizedDescription)")
-            completion(nil)
-        }
-    }
-
-    private func stopLocalProxy() {
-        proxyListener?.cancel()
-        proxyListener = nil
-    }
-
-    private func handleProxyClient(_ client: Network.NWConnection) {
-        client.start(queue: proxyQueue)
-        readProxyHeader(client: client, accumulated: Data())
-    }
-
-    private func readProxyHeader(client: Network.NWConnection, accumulated: Data) {
-        client.receive(minimumIncompleteLength: 1, maximumLength: 8192) { [weak self] data, _, isComplete, error in
-            guard let self = self else {
-                client.cancel()
-                return
-            }
-            if error != nil {
-                client.cancel()
-                return
-            }
-            var buffer = accumulated
-            if let data = data {
-                buffer.append(data)
-            }
-            let sep = Data([13, 10, 13, 10]) // CRLF CRLF
-            if let range = buffer.range(of: sep) {
-                let headerData = buffer[..<range.upperBound]
-                let leftover = Data(buffer[range.upperBound...])
-                self.processProxyHeader(client: client, headerData: Data(headerData), leftover: leftover)
-                return
-            }
-            if buffer.count > 16384 || isComplete {
-                client.cancel()
-                return
-            }
-            self.readProxyHeader(client: client, accumulated: buffer)
-        }
-    }
-
-    private func processProxyHeader(client: Network.NWConnection, headerData: Data, leftover: Data) {
-        guard let headerText = String(data: headerData, encoding: .utf8) ?? String(data: headerData, encoding: .ascii) else {
-            client.cancel()
+    private func forwardViaDirectUdp(dnsQuery: Data, upstreamIp: String, completion: @escaping (Data?, String) -> Void) {
+        let params = makeBypassParameters(tcp: false)
+        guard let port53 = Network.NWEndpoint.Port(rawValue: 53) else {
+            completion(nil, "UDP53_Err")
             return
         }
-        let lines = headerText.components(separatedBy: "\\r\\n")
-        guard let requestLine = lines.first else {
-            client.cancel()
-            return
-        }
-        let parts = requestLine.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
-        guard parts.count >= 2 else {
-            client.cancel()
-            return
+        let conn = Network.NWConnection(host: Network.NWEndpoint.Host(upstreamIp), port: port53, using: params)
+        let queue = DispatchQueue(label: "com.fajostech.aegisguard.udp53")
+        var finished = false
+
+        func finish(_ result: Data?, _ tag: String) {
+            guard !finished else { return }
+            finished = true
+            conn.cancel()
+            completion(result, tag)
         }
 
-        let method = String(parts[0]).uppercased()
-        let rawTarget = String(parts[1])
-        let version = parts.count >= 3 ? String(parts[2]) : "HTTP/1.1"
-        let isConnect = (method == "CONNECT")
+        queue.asyncAfter(deadline: .now() + 2.0) {
+            finish(nil, "UDP53_Timeout")
+        }
 
-        var hostHeader = ""
-        for line in lines.dropFirst() {
-            if line.lowercased().hasPrefix("host:") {
-                hostHeader = line.dropFirst(5).trimmingCharacters(in: .whitespacesAndNewlines)
+        conn.stateUpdateHandler = { (state: Network.NWConnection.State) in
+            guard !finished else { return }
+            switch state {
+            case .ready:
+                conn.send(content: dnsQuery, completion: .contentProcessed { (sendErr: Network.NWError?) in
+                    if sendErr != nil {
+                        finish(nil, "UDP53_Err")
+                        return
+                    }
+                    conn.receiveMessage { (data: Data?, _ctx: Network.NWConnection.ContentContext?, _isComplete: Bool, recvErr: Network.NWError?) in
+                        if recvErr == nil, let data = data, data.count >= 12 {
+                            finish(data, "UDP53")
+                        } else {
+                            finish(nil, "UDP53_Err")
+                        }
+                    }
+                })
+            case .failed(_), .cancelled:
+                finish(nil, "UDP53_Err")
+            default:
                 break
             }
         }
-
-        var targetHost = ""
-        var targetPort: UInt16 = isConnect ? 443 : 80
-        var forwardPayload: Data? = nil
-
-        if isConnect {
-            if rawTarget.hasPrefix("["), let closeIdx = rawTarget.firstIndex(of: "]") {
-                targetHost = String(rawTarget[rawTarget.index(after: rawTarget.startIndex)..<closeIdx])
-                let afterBracket = rawTarget[rawTarget.index(after: closeIdx)...]
-                if afterBracket.hasPrefix(":"), let p = UInt16(afterBracket.dropFirst()) {
-                    targetPort = p
-                }
-            } else if let colonIdx = rawTarget.lastIndex(of: ":"), let p = UInt16(rawTarget[rawTarget.index(after: colonIdx)...]) {
-                targetHost = String(rawTarget[..<colonIdx])
-                targetPort = p
-            } else {
-                targetHost = rawTarget
-            }
-        } else {
-            var originPath = rawTarget
-            var authority = hostHeader
-            let lowerTarget = rawTarget.lowercased()
-            if lowerTarget.hasPrefix("http://") {
-                let noScheme = String(rawTarget.dropFirst(7))
-                if let slashIdx = noScheme.firstIndex(of: "/") {
-                    authority = String(noScheme[..<slashIdx])
-                    originPath = String(noScheme[slashIdx...])
-                } else {
-                    authority = noScheme
-                    originPath = "/"
-                }
-            } else if lowerTarget.hasPrefix("https://") {
-                let noScheme = String(rawTarget.dropFirst(8))
-                if let slashIdx = noScheme.firstIndex(of: "/") {
-                    authority = String(noScheme[..<slashIdx])
-                    originPath = String(noScheme[slashIdx...])
-                } else {
-                    authority = noScheme
-                    originPath = "/"
-                }
-            }
-
-            if authority.hasPrefix("["), let closeIdx = authority.firstIndex(of: "]") {
-                targetHost = String(authority[authority.index(after: authority.startIndex)..<closeIdx])
-                let afterBracket = authority[authority.index(after: closeIdx)...]
-                if afterBracket.hasPrefix(":"), let p = UInt16(afterBracket.dropFirst()) {
-                    targetPort = p
-                }
-            } else if let colonIdx = authority.lastIndex(of: ":"), let p = UInt16(authority[authority.index(after: colonIdx)...]) {
-                targetHost = String(authority[..<colonIdx])
-                targetPort = p
-            } else {
-                targetHost = authority
-            }
-
-            var rebuilt = ["\\(method) \\(originPath) \\(version)"]
-            for line in lines.dropFirst() {
-                if line.isEmpty { continue }
-                let low = line.lowercased()
-                if low.hasPrefix("proxy-connection:") || low.hasPrefix("connection:") { continue }
-                rebuilt.append(line)
-            }
-            rebuilt.append("Connection: close")
-            let headerStr = rebuilt.joined(separator: "\\r\\n") + "\\r\\n\\r\\n"
-            var combined = Data(headerStr.utf8)
-            if !leftover.isEmpty {
-                combined.append(leftover)
-            }
-            forwardPayload = combined
-        }
-
-        let cleanHost = targetHost.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !cleanHost.isEmpty else {
-            client.cancel()
-            return
-        }
-
-        let startTime = CFAbsoluteTimeGetCurrent()
-        evaluateProxyHost(cleanHost) { [weak self] isBlocked, rule, isThreatAlert, proxyTag in
-            guard let self = self else {
-                client.cancel()
-                return
-            }
-            let latency = max(1, Int((CFAbsoluteTimeGetCurrent() - startTime) * 1000))
-            if isBlocked {
-                let resp = Data("HTTP/1.1 403 Forbidden\\r\\nContent-Length: 0\\r\\nConnection: close\\r\\n\\r\\n".utf8)
-                client.send(content: resp, completion: .contentProcessed { _ in
-                    client.cancel()
-                })
-                if isThreatAlert {
-                    self.postThreatNotification(domain: cleanHost, rule: rule ?? "Phishing Shield")
-                }
-                self.recordQuery(
-                    domain: cleanHost,
-                    qtype: isConnect ? "PROXY_HTTPS" : "PROXY_HTTP",
-                    isBlocked: true,
-                    rule: rule,
-                    durationMs: latency,
-                    upstream: "Aegis Proxy [\\(proxyTag)]"
-                )
-                return
-            }
-
-            self.recordQuery(
-                domain: cleanHost,
-                qtype: isConnect ? "PROXY_HTTPS" : "PROXY_HTTP",
-                isBlocked: false,
-                rule: nil,
-                durationMs: latency,
-                upstream: "Aegis Proxy [\\(proxyTag)]"
-            )
-
-            let effectivePort: UInt16 = (targetPort == 0) ? (isConnect ? 443 : 80) : targetPort
-            let remotePort = Network.NWEndpoint.Port(integerLiteral: effectivePort)
-            let remote = Network.NWConnection(host: Network.NWEndpoint.Host(cleanHost), port: remotePort, using: .tcp)
-
-            let finishLock = NSLock()
-            var tornDown = false
-            func tearDown() {
-                finishLock.lock()
-                let done = tornDown
-                tornDown = true
-                finishLock.unlock()
-                if !done {
-                    client.cancel()
-                    remote.cancel()
-                }
-            }
-
-            remote.stateUpdateHandler = { [weak self] (state: Network.NWConnection.State) in
-                guard let self = self else {
-                    tearDown()
-                    return
-                }
-                switch state {
-                case .ready:
-                    if isConnect {
-                        let ok = Data("HTTP/1.1 200 Connection Established\\r\\n\\r\\n".utf8)
-                        client.send(content: ok, completion: .contentProcessed { sendErr in
-                            if sendErr != nil {
-                                tearDown()
-                                return
-                            }
-                            if !leftover.isEmpty {
-                                remote.send(content: leftover, completion: .contentProcessed { lErr in
-                                    if lErr != nil {
-                                        tearDown()
-                                        return
-                                    }
-                                    self.relayProxy(from: client, to: remote, onEnd: tearDown)
-                                    self.relayProxy(from: remote, to: client, onEnd: tearDown)
-                                })
-                            } else {
-                                self.relayProxy(from: client, to: remote, onEnd: tearDown)
-                                self.relayProxy(from: remote, to: client, onEnd: tearDown)
-                            }
-                        })
-                    } else if let payload = forwardPayload {
-                        remote.send(content: payload, completion: .contentProcessed { sendErr in
-                            if sendErr != nil {
-                                tearDown()
-                                return
-                            }
-                            self.relayProxy(from: client, to: remote, onEnd: tearDown)
-                            self.relayProxy(from: remote, to: client, onEnd: tearDown)
-                        })
-                    } else {
-                        tearDown()
-                    }
-                case .failed(_), .cancelled:
-                    tearDown()
-                default:
-                    break
-                }
-            }
-            remote.start(queue: self.proxyQueue)
-        }
-    }
-
-    private func relayProxy(from source: Network.NWConnection, to dest: Network.NWConnection, onEnd: @escaping () -> Void) {
-        source.receive(minimumIncompleteLength: 1, maximumLength: 32768) { [weak self] data, _, isComplete, error in
-            if let data = data, !data.isEmpty {
-                dest.send(content: data, completion: .contentProcessed { sendErr in
-                    if sendErr != nil || isComplete {
-                        onEnd()
-                    } else {
-                        self?.relayProxy(from: source, to: dest, onEnd: onEnd)
-                    }
-                })
-            } else if isComplete || error != nil {
-                onEnd()
-            } else {
-                self?.relayProxy(from: source, to: dest, onEnd: onEnd)
-            }
-        }
-    }
-
-    private func evaluateProxyHost(_ host: String, completion: @escaping (Bool, String?, Bool, String) -> Void) {
-        if Network.IPv4Address(host) != nil || host.contains(":") {
-            completion(false, nil, false, "IP")
-            return
-        }
-
-        let decision = evaluateDomain(host, qtype: 1)
-        if decision.isBlocked {
-            completion(decision.countsAsBlock, decision.rule, decision.isThreatAlert, "Local")
-            return
-        }
-
-        let snap = stateQueue.sync { (isPremium, upstreamDohUrl, upstreamBootstrapIp) }
-        guard snap.0 else {
-            completion(false, nil, false, "Basic")
-            return
-        }
-
-        proxyCacheLock.lock()
-        let cached = upstreamProxyCache[host]
-        proxyCacheLock.unlock()
-        if let hit = cached {
-            completion(hit, hit ? "Upstream Cache Block" : nil, false, "Cache")
-            return
-        }
-
-        let dnsQuery = buildDnsAQuery(domain: host)
-        forwardViaDoh(dnsQuery: dnsQuery, dohUrl: snap.1, bootstrapIp: snap.2) { [weak self] resp, transport in
-            guard let self = self else {
-                completion(false, nil, false, "Gone")
-                return
-            }
-            let blocked = resp.map { self.didUpstreamBlock($0) } ?? false
-            self.proxyCacheLock.lock()
-            if self.upstreamProxyCache.count >= 1500 {
-                self.upstreamProxyCache.removeAll()
-            }
-            self.upstreamProxyCache[host] = blocked
-            self.proxyCacheLock.unlock()
-            completion(blocked, blocked ? "Upstream \\(transport) Block" : nil, false, transport)
-        }
-    }
-
-    private func buildDnsAQuery(domain: String) -> Data {
-        var bytes: [UInt8] = [0xAB, 0xCD, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
-        for label in domain.split(separator: ".") {
-            let utf8 = Array(label.utf8)
-            guard !utf8.isEmpty && utf8.count <= 63 else { continue }
-            bytes.append(UInt8(utf8.count))
-            bytes.append(contentsOf: utf8)
-        }
-        bytes.append(contentsOf: [0x00, 0x00, 0x01, 0x00, 0x01])
-        return Data(bytes)
-    }
-
-    private func forwardViaDirectUdp(dnsQuery: Data, upstreamIp: String, completion: @escaping (Data?, String) -> Void) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let sock = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
-            guard sock >= 0 else {
-                completion(nil, "UDP53_Err")
-                return
-            }
-            defer { Darwin.close(sock) }
-
-            var timeout = timeval(tv_sec: 2, tv_usec: 0)
-            setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
-
-            var addr = sockaddr_in()
-            addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-            addr.sin_family = sa_family_t(AF_INET)
-            addr.sin_port = in_port_t(53).bigEndian
-            guard inet_pton(AF_INET, upstreamIp, &addr.sin_addr) == 1 else {
-                completion(nil, "UDP53_Err")
-                return
-            }
-
-            let sent = dnsQuery.withUnsafeBytes { rawBuf -> Int in
-                guard let base = rawBuf.baseAddress else { return -1 }
-                return withUnsafePointer(to: &addr) {
-                    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                        Darwin.sendto(sock, base, dnsQuery.count, 0, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
-                    }
-                }
-            }
-            guard sent > 0 else {
-                completion(nil, "UDP53_Err")
-                return
-            }
-
-            var recvBuf = [UInt8](repeating: 0, count: 4096)
-            let n = Darwin.recv(sock, &recvBuf, recvBuf.count, 0)
-            if n >= 12 {
-                completion(Data(recvBuf[0..<n]), "UDP53")
-            } else {
-                completion(nil, "UDP53_Timeout")
-            }
-        }
-    }
-
-    private func buildIPv4UdpPacket(srcIP: [UInt8], dstIP: [UInt8], srcPort: UInt16, dstPort: UInt16, payload: Data) -> Data {
-        let udpLen = UInt16(8 + payload.count)
-        let totalLen = UInt16(20 + Int(udpLen))
-
-        var ip = [UInt8](repeating: 0, count: 20)
-        ip[0] = 0x45 // IPv4, IHL = 5
-        ip[1] = 0x00
-        ip[2] = UInt8(totalLen >> 8)
-        ip[3] = UInt8(totalLen & 0xFF)
-        ip[4] = 0x00
-        ip[5] = 0x01
-        ip[6] = 0x40 // Don't fragment
-        ip[7] = 0x00
-        ip[8] = 64   // TTL
-        ip[9] = 17   // UDP
-        ip[12] = srcIP[0]; ip[13] = srcIP[1]; ip[14] = srcIP[2]; ip[15] = srcIP[3]
-        ip[16] = dstIP[0]; ip[17] = dstIP[1]; ip[18] = dstIP[2]; ip[19] = dstIP[3]
-
-        // IPv4 header checksum
-        let ipSum = computeChecksum(ip)
-        ip[10] = UInt8(ipSum >> 8)
-        ip[11] = UInt8(ipSum & 0xFF)
-
-        var udp = [UInt8](repeating: 0, count: 8)
-        udp[0] = UInt8(srcPort >> 8)
-        udp[1] = UInt8(srcPort & 0xFF)
-        udp[2] = UInt8(dstPort >> 8)
-        udp[3] = UInt8(dstPort & 0xFF)
-        udp[4] = UInt8(udpLen >> 8)
-        udp[5] = UInt8(udpLen & 0xFF)
-
-        // UDP pseudo-header checksum
-        var pseudo = [UInt8]()
-        pseudo.append(contentsOf: srcIP)
-        pseudo.append(contentsOf: dstIP)
-        pseudo.append(0x00)
-        pseudo.append(17)
-        pseudo.append(udp[4])
-        pseudo.append(udp[5])
-        pseudo.append(contentsOf: udp)
-        pseudo.append(contentsOf: payload)
-        let udpSum = computeChecksum(pseudo)
-        udp[6] = UInt8(udpSum >> 8)
-        udp[7] = UInt8(udpSum & 0xFF)
-
-        var packet = Data(capacity: Int(totalLen))
-        packet.append(contentsOf: ip)
-        packet.append(contentsOf: udp)
-        packet.append(payload)
-        return packet
-    }
-
-    private func buildIPv6UdpPacket(srcIP: [UInt8], dstIP: [UInt8], srcPort: UInt16, dstPort: UInt16, payload: Data) -> Data {
-        let udpLen = UInt16(8 + payload.count)
-        var ip6 = [UInt8](repeating: 0, count: 40)
-        ip6[0] = 0x60 // IPv6
-        ip6[4] = UInt8(udpLen >> 8)
-        ip6[5] = UInt8(udpLen & 0xFF)
-        ip6[6] = 17   // UDP
-        ip6[7] = 64   // Hop Limit
-        for idx in 0..<16 {
-            ip6[8 + idx] = srcIP[idx]
-            ip6[24 + idx] = dstIP[idx]
-        }
-
-        var udp = [UInt8](repeating: 0, count: 8)
-        udp[0] = UInt8(srcPort >> 8)
-        udp[1] = UInt8(srcPort & 0xFF)
-        udp[2] = UInt8(dstPort >> 8)
-        udp[3] = UInt8(dstPort & 0xFF)
-        udp[4] = UInt8(udpLen >> 8)
-        udp[5] = UInt8(udpLen & 0xFF)
-
-        var pseudo = [UInt8]()
-        pseudo.append(contentsOf: srcIP)
-        pseudo.append(contentsOf: dstIP)
-        pseudo.append(contentsOf: [0x00, 0x00, udp[4], udp[5]])
-        pseudo.append(contentsOf: [0x00, 0x00, 0x00, 17])
-        pseudo.append(contentsOf: udp)
-        pseudo.append(contentsOf: payload)
-        let udpSum = computeChecksum(pseudo)
-        udp[6] = UInt8(udpSum >> 8)
-        udp[7] = UInt8(udpSum & 0xFF)
-
-        var packet = Data(capacity: 40 + Int(udpLen))
-        packet.append(contentsOf: ip6)
-        packet.append(contentsOf: udp)
-        packet.append(payload)
-        return packet
-    }
-
-    private func computeChecksum(_ data: [UInt8]) -> UInt16 {
-        var sum: UInt32 = 0
-        var idx = 0
-        while idx + 1 < data.count {
-            sum += (UInt32(data[idx]) << 8) | UInt32(data[idx + 1])
-            idx += 2
-        }
-        if idx < data.count {
-            sum += UInt32(data[idx]) << 8
-        }
-        while (sum >> 16) != 0 {
-            sum = (sum & 0xFFFF) + (sum >> 16)
-        }
-        let inverted = ~UInt16(sum & 0xFFFF)
-        return inverted == 0 ? 0xFFFF : inverted
+        conn.start(queue: queue)
     }
 
     // MARK: - Shared App Group Telemetry
@@ -1958,6 +1735,630 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             WidgetCenter.shared.reloadAllTimelines()
         }
         #endif
+    }
+}
+
+private final class LocalSocks5Server {
+    private weak var provider: PacketTunnelProvider?
+    private let queue = DispatchQueue(label: "com.fajostech.aegisguard.socks5.server")
+    private var listener: Network.NWListener?
+    private var sessions: [UUID: Socks5Session] = [:]
+
+    init(provider: PacketTunnelProvider) {
+        self.provider = provider
+    }
+
+    func start(completion: @escaping (UInt16?) -> Void) {
+        listen(preferredPort: 10808, allowFallbackToAny: true, completion: completion)
+    }
+
+    private func listen(preferredPort: UInt16?, allowFallbackToAny: Bool, completion: @escaping (UInt16?) -> Void) {
+        let params = Network.NWParameters.tcp
+        params.allowLocalEndpointReuse = true
+
+        do {
+            let newListener: Network.NWListener
+            if let p = preferredPort, let nwPort = Network.NWEndpoint.Port(rawValue: p) {
+                newListener = try Network.NWListener(using: params, on: nwPort)
+            } else {
+                newListener = try Network.NWListener(using: params, on: .any)
+            }
+            self.listener = newListener
+
+            var finished = false
+            func finish(_ port: UInt16?) {
+                guard !finished else { return }
+                finished = true
+                completion(port)
+            }
+
+            newListener.stateUpdateHandler = { [weak self] (state: Network.NWListener.State) in
+                guard let self = self else {
+                    finish(nil)
+                    return
+                }
+                switch state {
+                case .ready:
+                    let bound = newListener.port?.rawValue ?? preferredPort ?? 10808
+                    finish(bound)
+                case .failed(_):
+                    newListener.cancel()
+                    if !finished && allowFallbackToAny && preferredPort != nil {
+                        finished = true
+                        self.listen(preferredPort: nil, allowFallbackToAny: false, completion: completion)
+                    } else {
+                        finish(nil)
+                    }
+                case .cancelled:
+                    finish(nil)
+                default:
+                    break
+                }
+            }
+
+            newListener.newConnectionHandler = { [weak self] (conn: Network.NWConnection) in
+                guard let self = self else {
+                    conn.cancel()
+                    return
+                }
+                guard self.isLoopbackConnection(conn) else {
+                    conn.cancel()
+                    return
+                }
+                let session = Socks5Session(client: conn, provider: self.provider) { [weak self] sessionId in
+                    self?.queue.async {
+                        self?.sessions.removeValue(forKey: sessionId)
+                    }
+                }
+                self.sessions[session.id] = session
+                session.start()
+            }
+
+            queue.asyncAfter(deadline: .now() + 2.0) {
+                if !finished {
+                    finish(nil)
+                }
+            }
+            newListener.start(queue: queue)
+        } catch {
+            if allowFallbackToAny && preferredPort != nil {
+                listen(preferredPort: nil, allowFallbackToAny: false, completion: completion)
+            } else {
+                completion(nil)
+            }
+        }
+    }
+
+    private func isLoopbackConnection(_ conn: Network.NWConnection) -> Bool {
+        if case .hostPort(let host, _) = conn.endpoint {
+            let raw = "\\(host)".lowercased()
+            let base = raw.split(separator: "%", maxSplits: 1).first.map(String.init) ?? raw
+            return base == "127.0.0.1" || base == "::1" || base == "::ffff:127.0.0.1" || base == "localhost"
+        }
+        return true
+    }
+
+    func stop() {
+        queue.async {
+            self.listener?.cancel()
+            self.listener = nil
+            let active = Array(self.sessions.values)
+            self.sessions.removeAll()
+            for session in active {
+                session.close()
+            }
+        }
+    }
+}
+
+private final class Socks5Session {
+    let id = UUID()
+    private let client: Network.NWConnection
+    private weak var provider: PacketTunnelProvider?
+    private let queue: DispatchQueue
+    private let onClose: (UUID) -> Void
+
+    private enum Phase {
+        case greeting
+        case request
+        case tcpConnecting
+        case tcpStreaming
+        case dnsTcp
+        case udpOverTcp
+        case closed
+    }
+
+    private struct UdpPeerState {
+        let conn: Network.NWConnection
+        var isReady: Bool
+        var pending: [Data]
+        let addrBytes: Data
+    }
+
+    private var phase: Phase = .greeting
+    private var buffer = Data()
+    private var remoteTcp: Network.NWConnection?
+    private var clientWriteEnded = false
+    private var remoteWriteEnded = false
+    private var udpPeers: [String: UdpPeerState] = [:]
+
+    init(client: Network.NWConnection, provider: PacketTunnelProvider?, onClose: @escaping (UUID) -> Void) {
+        self.client = client
+        self.provider = provider
+        self.queue = DispatchQueue(label: "com.fajostech.aegisguard.socks5.session.\\(UUID().uuidString)")
+        self.onClose = onClose
+    }
+
+    func start() {
+        client.stateUpdateHandler = { [weak self] (state: Network.NWConnection.State) in
+            guard let self = self else { return }
+            switch state {
+            case .ready:
+                self.pumpClient()
+            case .failed(_), .cancelled:
+                self.close()
+            default:
+                break
+            }
+        }
+        client.start(queue: queue)
+    }
+
+    func close() {
+        queue.async { [weak self] in
+            self?.closeOnQueue()
+        }
+    }
+
+    private func closeOnQueue() {
+        guard phase != .closed else { return }
+        phase = .closed
+        client.cancel()
+        remoteTcp?.cancel()
+        remoteTcp = nil
+        for (_, peer) in udpPeers {
+            peer.conn.cancel()
+        }
+        udpPeers.removeAll()
+        buffer = Data()
+        onClose(id)
+    }
+
+    private func pumpClient() {
+        guard phase != .closed && phase != .tcpConnecting else { return }
+        client.receive(minimumIncompleteLength: 1, maximumLength: 32768) { [weak self] (data: Data?, _ctx: Network.NWConnection.ContentContext?, isComplete: Bool, error: Network.NWError?) in
+            guard let self = self, self.phase != .closed else { return }
+            if let error = error {
+                _ = error
+                self.closeOnQueue()
+                return
+            }
+
+            if self.phase == .tcpStreaming {
+                guard let remote = self.remoteTcp else {
+                    self.closeOnQueue()
+                    return
+                }
+                if let data = data, !data.isEmpty {
+                    remote.send(content: data, completion: .contentProcessed { [weak self] (sendErr: Network.NWError?) in
+                        guard let self = self, self.phase != .closed else { return }
+                        if sendErr != nil {
+                            self.closeOnQueue()
+                        } else if isComplete {
+                            self.handleClientEof()
+                        } else {
+                            self.pumpClient()
+                        }
+                    })
+                } else if isComplete {
+                    self.handleClientEof()
+                } else {
+                    self.pumpClient()
+                }
+                return
+            }
+
+            if let data = data, !data.isEmpty {
+                self.buffer.append(data)
+            }
+            self.processBuffer()
+            if self.phase == .closed { return }
+            if isComplete {
+                self.closeOnQueue()
+                return
+            }
+            if self.phase != .tcpConnecting {
+                self.pumpClient()
+            }
+        }
+    }
+
+    private func handleClientEof() {
+        clientWriteEnded = true
+        remoteTcp?.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { [weak self] (_: Network.NWError?) in
+            guard let self = self else { return }
+            if self.remoteWriteEnded {
+                self.closeOnQueue()
+            }
+        })
+    }
+
+    private func handleRemoteEof() {
+        remoteWriteEnded = true
+        client.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { [weak self] (_: Network.NWError?) in
+            guard let self = self else { return }
+            if self.clientWriteEnded {
+                self.closeOnQueue()
+            }
+        })
+    }
+
+    private func processBuffer() {
+        while phase != .closed {
+            switch phase {
+            case .greeting:
+                let bytes = [UInt8](buffer)
+                guard bytes.count >= 2 else { return }
+                guard bytes[0] == 0x05 else {
+                    closeOnQueue()
+                    return
+                }
+                let nMethods = Int(bytes[1])
+                let totalLen = 2 + nMethods
+                guard bytes.count >= totalLen else { return }
+                buffer = Data(bytes.dropFirst(totalLen))
+                sendClientRaw(Data([0x05, 0x00]))
+                phase = .request
+
+            case .request:
+                let bytes = [UInt8](buffer)
+                guard bytes.count >= 4 else { return }
+                guard bytes[0] == 0x05 else {
+                    closeOnQueue()
+                    return
+                }
+                let cmd = bytes[1]
+                let atyp = bytes[3]
+                guard let parsed = Self.parseSocksAddress(bytes: bytes, offset: 3) else {
+                    if atyp != 0x01 && atyp != 0x03 && atyp != 0x04 {
+                        sendSocksReply(rep: 0x08) { [weak self] in
+                            self?.closeOnQueue()
+                        }
+                    }
+                    return
+                }
+                let totalReqLen = 3 + parsed.consumed
+                guard bytes.count >= totalReqLen else { return }
+                buffer = Data(bytes.dropFirst(totalReqLen))
+                handleCommand(cmd: cmd, host: parsed.host, port: parsed.port)
+                if phase == .tcpConnecting || phase == .tcpStreaming {
+                    return
+                }
+
+            case .dnsTcp:
+                let bytes = [UInt8](buffer)
+                guard bytes.count >= 2 else { return }
+                let msgLen = (Int(bytes[0]) << 8) | Int(bytes[1])
+                guard msgLen >= 12 && msgLen <= 4096 else {
+                    closeOnQueue()
+                    return
+                }
+                guard bytes.count >= 2 + msgLen else { return }
+                let dnsQuery = Data(bytes[2..<(2 + msgLen)])
+                buffer = Data(bytes.dropFirst(2 + msgLen))
+                provider?.processDnsQuery(dnsQuery: dnsQuery) { [weak self] (respDns: Data) in
+                    guard let self = self else { return }
+                    self.queue.async {
+                        guard self.phase == .dnsTcp else { return }
+                        let len = UInt16(respDns.count)
+                        var out = Data([UInt8(len >> 8), UInt8(len & 0xFF)])
+                        out.append(respDns)
+                        self.sendClientRaw(out)
+                    }
+                }
+
+            case .udpOverTcp:
+                let bytes = [UInt8](buffer)
+                guard bytes.count >= 4 else { return }
+                let datLen = (Int(bytes[0]) << 8) | Int(bytes[1])
+                let hdrLen = Int(bytes[2])
+                guard hdrLen >= 7, datLen <= 65535 else {
+                    closeOnQueue()
+                    return
+                }
+                let totalLen = hdrLen + datLen
+                guard bytes.count >= totalLen else { return }
+                let addrBytes = Data(bytes[3..<hdrLen])
+                let payload = Data(bytes[hdrLen..<totalLen])
+                buffer = Data(bytes.dropFirst(totalLen))
+                handleUdpFrame(addrBytes: addrBytes, payload: payload)
+
+            case .tcpConnecting, .tcpStreaming, .closed:
+                return
+            }
+        }
+    }
+
+    private func handleCommand(cmd: UInt8, host: String, port: UInt16) {
+        if cmd == 0x05 {
+            // HevSocks5Tunnel UDP-in-TCP mode
+            phase = .udpOverTcp
+            sendSocksReply(rep: 0x00)
+            return
+        }
+
+        guard cmd == 0x01 else {
+            sendSocksReply(rep: 0x07) { [weak self] in
+                self?.closeOnQueue()
+            }
+            return
+        }
+
+        // Prevent DNS-over-TLS / DoQ bypasses outside tunnel filtering
+        if port == 853 || port == 8853 {
+            sendSocksReply(rep: 0x02) { [weak self] in
+                self?.closeOnQueue()
+            }
+            return
+        }
+
+        // Intercept DNS-over-TCP (port 53)
+        if port == 53 {
+            phase = .dnsTcp
+            sendSocksReply(rep: 0x00)
+            return
+        }
+
+        guard let nwPort = Network.NWEndpoint.Port(rawValue: port), port > 0,
+              let provider = self.provider else {
+            sendSocksReply(rep: 0x04) { [weak self] in
+                self?.closeOnQueue()
+            }
+            return
+        }
+
+        let params = provider.makeBypassParameters(tcp: true)
+        let remote = Network.NWConnection(host: Network.NWEndpoint.Host(host), port: nwPort, using: params)
+        self.remoteTcp = remote
+        self.phase = .tcpConnecting
+
+        queue.asyncAfter(deadline: .now() + 12.0) { [weak self] in
+            guard let self = self, self.phase == .tcpConnecting else { return }
+            self.sendSocksReply(rep: 0x04) { [weak self] in
+                self?.closeOnQueue()
+            }
+        }
+
+        remote.stateUpdateHandler = { [weak self] (state: Network.NWConnection.State) in
+            guard let self = self, self.phase != .closed else { return }
+            switch state {
+            case .ready:
+                guard self.phase == .tcpConnecting else { return }
+                self.phase = .tcpStreaming
+                self.client.send(
+                    content: Data([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]),
+                    completion: .contentProcessed { [weak self] (err: Network.NWError?) in
+                        guard let self = self, self.phase == .tcpStreaming else { return }
+                        if err != nil {
+                            self.closeOnQueue()
+                            return
+                        }
+                        if !self.buffer.isEmpty {
+                            let initial = self.buffer
+                            self.buffer = Data()
+                            remote.send(content: initial, completion: .contentProcessed { [weak self] (sendErr: Network.NWError?) in
+                                guard let self = self, self.phase == .tcpStreaming else { return }
+                                if sendErr != nil {
+                                    self.closeOnQueue()
+                                } else {
+                                    self.pumpClient()
+                                    self.pumpRemoteTcp()
+                                }
+                            })
+                        } else {
+                            self.pumpClient()
+                            self.pumpRemoteTcp()
+                        }
+                    }
+                )
+            case .failed(_), .cancelled:
+                if self.phase == .tcpConnecting {
+                    self.sendSocksReply(rep: 0x04) { [weak self] in
+                        self?.closeOnQueue()
+                    }
+                } else {
+                    self.closeOnQueue()
+                }
+            default:
+                break
+            }
+        }
+        remote.start(queue: queue)
+    }
+
+    private func pumpRemoteTcp() {
+        guard phase == .tcpStreaming, let remote = remoteTcp else { return }
+        remote.receive(minimumIncompleteLength: 1, maximumLength: 32768) { [weak self] (data: Data?, _ctx: Network.NWConnection.ContentContext?, isComplete: Bool, error: Network.NWError?) in
+            guard let self = self, self.phase == .tcpStreaming else { return }
+            if let data = data, !data.isEmpty {
+                self.client.send(content: data, completion: .contentProcessed { [weak self] (sendErr: Network.NWError?) in
+                    guard let self = self, self.phase == .tcpStreaming else { return }
+                    if sendErr != nil {
+                        self.closeOnQueue()
+                    } else if isComplete {
+                        self.handleRemoteEof()
+                    } else {
+                        self.pumpRemoteTcp()
+                    }
+                })
+            } else if isComplete {
+                self.handleRemoteEof()
+            } else if error != nil {
+                self.closeOnQueue()
+            } else {
+                self.pumpRemoteTcp()
+            }
+        }
+    }
+
+    private func handleUdpFrame(addrBytes: Data, payload: Data) {
+        let ab = [UInt8](addrBytes)
+        guard let parsed = Self.parseSocksAddress(bytes: ab, offset: 0) else { return }
+        let dstHost = parsed.host
+        let dstPort = parsed.port
+
+        // Intercept ALL UDP DNS (port 53), regardless of target DNS IP (198.18.53.53, 8.8.8.8, 1.1.1.1, etc.)
+        if dstPort == 53 {
+            provider?.processDnsQuery(dnsQuery: payload) { [weak self] (respDns: Data) in
+                guard let self = self else { return }
+                self.queue.async {
+                    guard self.phase == .udpOverTcp else { return }
+                    self.sendUdpFrameToClient(addrBytes: addrBytes, payload: respDns)
+                }
+            }
+            return
+        }
+
+        // Drop external DoT / DoQ probes on UDP 853 / 8853
+        if dstPort == 853 || dstPort == 8853 {
+            return
+        }
+
+        guard let nwPort = Network.NWEndpoint.Port(rawValue: dstPort), dstPort > 0,
+              let provider = self.provider else {
+            return
+        }
+
+        let peerKey = "\\(dstHost):\\(dstPort)"
+        if var existing = udpPeers[peerKey] {
+            if existing.isReady {
+                existing.conn.send(content: payload, completion: .contentProcessed { (_: Network.NWError?) in })
+            } else if existing.pending.count < 32 {
+                existing.pending.append(payload)
+                udpPeers[peerKey] = existing
+            }
+            return
+        }
+
+        guard udpPeers.count < 32 else { return }
+        let params = provider.makeBypassParameters(tcp: false)
+        let udpConn = Network.NWConnection(host: Network.NWEndpoint.Host(dstHost), port: nwPort, using: params)
+        udpPeers[peerKey] = UdpPeerState(conn: udpConn, isReady: false, pending: [payload], addrBytes: addrBytes)
+
+        udpConn.stateUpdateHandler = { [weak self] (state: Network.NWConnection.State) in
+            guard let self = self, self.phase == .udpOverTcp else {
+                udpConn.cancel()
+                return
+            }
+            switch state {
+            case .ready:
+                guard var st = self.udpPeers[peerKey] else { return }
+                st.isReady = true
+                let queued = st.pending
+                st.pending.removeAll()
+                self.udpPeers[peerKey] = st
+                for pkt in queued {
+                    udpConn.send(content: pkt, completion: .contentProcessed { (_: Network.NWError?) in })
+                }
+                self.pumpUdpPeer(peerKey: peerKey, conn: udpConn, addrBytes: addrBytes)
+            case .failed(_), .cancelled:
+                self.udpPeers.removeValue(forKey: peerKey)
+            default:
+                break
+            }
+        }
+        udpConn.start(queue: queue)
+    }
+
+    private func pumpUdpPeer(peerKey: String, conn: Network.NWConnection, addrBytes: Data) {
+        guard phase == .udpOverTcp, udpPeers[peerKey] != nil else { return }
+        conn.receiveMessage { [weak self] (data: Data?, _ctx: Network.NWConnection.ContentContext?, _isComplete: Bool, error: Network.NWError?) in
+            guard let self = self, self.phase == .udpOverTcp, self.udpPeers[peerKey] != nil else { return }
+            if let data = data, !data.isEmpty {
+                self.sendUdpFrameToClient(addrBytes: addrBytes, payload: data)
+            }
+            if let error = error {
+                _ = error
+                self.udpPeers[peerKey]?.conn.cancel()
+                self.udpPeers.removeValue(forKey: peerKey)
+                return
+            }
+            self.pumpUdpPeer(peerKey: peerKey, conn: conn, addrBytes: addrBytes)
+        }
+    }
+
+    private func sendUdpFrameToClient(addrBytes: Data, payload: Data) {
+        guard payload.count <= 65535, addrBytes.count + 3 <= 255 else { return }
+        let dlen = UInt16(payload.count)
+        let hdrLen = UInt8(3 + addrBytes.count)
+        var frame = Data(capacity: 3 + addrBytes.count + payload.count)
+        frame.append(UInt8(dlen >> 8))
+        frame.append(UInt8(dlen & 0xFF))
+        frame.append(hdrLen)
+        frame.append(addrBytes)
+        frame.append(payload)
+        sendClientRaw(frame)
+    }
+
+    private func sendSocksReply(rep: UInt8, completion: (() -> Void)? = nil) {
+        let reply = Data([0x05, rep, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+        client.send(content: reply, completion: .contentProcessed { _ in
+            completion?()
+        })
+    }
+
+    private func sendClientRaw(_ data: Data) {
+        guard phase != .closed else { return }
+        client.send(content: data, completion: .contentProcessed { [weak self] (err: Network.NWError?) in
+            if err != nil {
+                self?.closeOnQueue()
+            }
+        })
+    }
+
+    private static func parseSocksAddress(bytes: [UInt8], offset: Int) -> (host: String, port: UInt16, consumed: Int)? {
+        guard offset < bytes.count else { return nil }
+        let atyp = bytes[offset]
+        switch atyp {
+        case 0x01:
+            guard offset + 7 <= bytes.count else { return nil }
+            let host = "\\(bytes[offset + 1]).\\(bytes[offset + 2]).\\(bytes[offset + 3]).\\(bytes[offset + 4])"
+            let port = (UInt16(bytes[offset + 5]) << 8) | UInt16(bytes[offset + 6])
+            return (host, port, 7)
+        case 0x03:
+            guard offset + 2 <= bytes.count else { return nil }
+            let dlen = Int(bytes[offset + 1])
+            guard offset + 2 + dlen + 2 <= bytes.count else { return nil }
+            guard let host = String(bytes: bytes[(offset + 2)..<(offset + 2 + dlen)], encoding: .utf8) else {
+                return nil
+            }
+            let port = (UInt16(bytes[offset + 2 + dlen]) << 8) | UInt16(bytes[offset + 2 + dlen + 1])
+            return (host, port, 2 + dlen + 2)
+        case 0x04:
+            guard offset + 19 <= bytes.count else { return nil }
+            guard let host = formatIPv6(Array(bytes[(offset + 1)..<(offset + 17)])) else { return nil }
+            let port = (UInt16(bytes[offset + 17]) << 8) | UInt16(bytes[offset + 18])
+            return (host, port, 19)
+        default:
+            return nil
+        }
+    }
+
+    private static func formatIPv6(_ bytes: [UInt8]) -> String? {
+        guard bytes.count == 16 else { return nil }
+        var addr = in6_addr()
+        withUnsafeMutableBytes(of: &addr) { dst in
+            bytes.withUnsafeBytes { src in
+                dst.copyMemory(from: src)
+            }
+        }
+        var buf = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+        return withUnsafePointer(to: &addr) { ptr in
+            guard let cstr = inet_ntop(AF_INET6, ptr, &buf, socklen_t(INET6_ADDRSTRLEN)) else {
+                return nil
+            }
+            return String(cString: cstr)
+        }
     }
 }
 `;
@@ -2213,6 +2614,8 @@ function ensureExtensionTarget(proj, options) {
         cfg.buildSettings.GENERATE_INFOPLIST_FILE = 'NO';
         cfg.buildSettings.APPLICATION_EXTENSION_API_ONLY = 'YES';
         cfg.buildSettings.ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = 'NO';
+        cfg.buildSettings.CLANG_ENABLE_MODULES = 'YES';
+        cfg.buildSettings.ENABLE_USER_SCRIPT_SANDBOXING = 'NO';
       }
     }
   }
@@ -2233,6 +2636,27 @@ function withAdguardIosFiles(config) {
       return config;
     },
   ]);
+}
+
+function withAdguardIosPodfile(config) {
+  if (!withPodfile) return config;
+  return withPodfile(config, (config) => {
+    let contents = config.modResults.contents || '';
+    const blockRegex = /\n?# >>> AegisPacketTunnel Tun2SocksKit begin[\s\S]*?# <<< AegisPacketTunnel Tun2SocksKit end\n?/g;
+    contents = contents.replace(blockRegex, '').trimEnd();
+
+    const podBlock = [
+      '# >>> AegisPacketTunnel Tun2SocksKit begin',
+      `target '${TUNNEL_TARGET}' do`,
+      '  use_frameworks! :linkage => :static',
+      "  pod 'Tun2SocksKit', '5.20.0'",
+      'end',
+      '# <<< AegisPacketTunnel Tun2SocksKit end',
+    ].join('\n');
+
+    config.modResults.contents = `${contents}\n\n${podBlock}\n`;
+    return config;
+  });
 }
 
 function withAdguardIosXcode(config) {
@@ -2290,6 +2714,7 @@ function withAdguardIosXcode(config) {
 function withAdguardIosExtensions(config) {
   config = withAdguardIosFiles(config);
   config = withAdguardIosXcode(config);
+  config = withAdguardIosPodfile(config);
   return config;
 }
 
