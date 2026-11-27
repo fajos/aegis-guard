@@ -842,7 +842,7 @@ public class AdGuardVpnModule: Module {
           return ia < ib
         }
         var domainSet = Set<String>()
-        domainSet.reserveCapacity(13000)
+        domainSet.reserveCapacity(36000)
         var countsById: [String: Int] = [:]
         let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
         var updatedTimes: [String: Int64] = [:]
@@ -883,7 +883,7 @@ public class AdGuardVpnModule: Module {
               let validChars = body.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_") }
               if validChars && body.contains(".") && body.count <= 120 {
                 subCount += 1
-                if domainSet.count < 12000 {
+                if domainSet.count < 35000 {
                   domainSet.insert(body)
                 }
               }
@@ -894,7 +894,7 @@ public class AdGuardVpnModule: Module {
                 let validChars = dom.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_") }
                 if validChars && dom.contains(".") && dom != "0.0.0.0" && dom != "localhost" && dom.count <= 120 {
                   subCount += 1
-                  if domainSet.count < 12000 {
+                  if domainSet.count < 35000 {
                     domainSet.insert(dom)
                   }
                 }
