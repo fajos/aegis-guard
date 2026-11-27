@@ -1239,11 +1239,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     private func forwardViaDot(dnsQuery: Data, upstreamIp: String, sniHost: String, completion: @escaping (Data?) -> Void) {
-        let tlsOpts = NWProtocolTLS.Options()
+        let tlsOpts = Network.NWProtocolTLS.Options()
         sec_protocol_options_set_tls_server_name(tlsOpts.securityProtocolOptions, sniHost)
-        let params = NWParameters(tls: tlsOpts)
-        let dotPort = NWEndpoint.Port(rawValue: 853) ?? NWEndpoint.Port.tls
-        let conn = NWConnection(host: NWEndpoint.Host(upstreamIp), port: dotPort, using: params)
+        let params = Network.NWParameters(tls: tlsOpts)
+        let dotPort: Network.NWEndpoint.Port = 853
+        let conn = Network.NWConnection(host: Network.NWEndpoint.Host(upstreamIp), port: dotPort, using: params)
         let queue = DispatchQueue(label: "com.fajostech.aegisguard.dot")
         var finished = false
         let lock = NSLock()
@@ -1269,7 +1269,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             finish(nil)
         }
 
-        conn.stateUpdateHandler = { state in
+        conn.stateUpdateHandler = { (state: Network.NWConnection.State) in
             switch state {
             case .ready:
                 let len = UInt16(dnsQuery.count)
